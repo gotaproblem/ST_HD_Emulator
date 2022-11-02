@@ -1,0 +1,13 @@
+/.DS_Store
+/.vscode
+/CMakeLists copy.txt
+/bootsectordump.h
+/build
+/launch-raspberrypi-swd.json
+/main copy.c
+/mydiskio.h
+/myinteger.h
+/mysdcardio.c
+/mysdcardio.h
+/settings.json
+/try copy.pio

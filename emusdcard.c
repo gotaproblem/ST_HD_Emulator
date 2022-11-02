@@ -1,0 +1,104 @@
+#include <stdio.h>
+#include <pico/stdlib.h>
+#include "pico.h"   
+#include "hardware/spi.h"
+#include "ff.h"
+#include "diskio.h"
+#include "emu.h"
+
+
+#define MHZ                 1000000
+
+
+void spi0_dma_isr();
+
+
+// Hardware Configuration of SPI "objects"
+// Note: multiple SD cards can be driven by one SPI if they use different slave
+// selects.
+spi_t spis[] = {                 // One for each SPI.
+    {
+        .hw_inst     = spi0,            // SPI instance
+        .miso_gpio   = SPI_SDO,         // SDO
+        .mosi_gpio   = SPI_SDI,         // SDI
+        .sck_gpio    = SPI_CLK,         // CLK
+
+        /* 
+         * The choice of SD card may matter 
+         * Samsung EVO Plus 24MHz and 50MHz (CPU CLOCK needs to be 133MHz) tested OK
+         */
+        .baud_rate   = 15 * MHZ,
+                                        // Following attributes are dynamically assigned
+        .dma_isr     = spi0_dma_isr,
+        .initialized = false,           // initialized flag
+    }
+};
+
+// Hardware Configuration of the SD Card "objects"
+sd_card_t sd_cards[] = {         // One for each SD card
+    {
+        .pcName             = "sd0:",   // Name used to mount device - refer to ff_conf.h
+        .spi                = &spis[0], // Pointer to the SPI driving this card
+        .ss_gpio            = MICROSD_CARD_CS0, // The SPI slave select GPIO for this SD card
+        .card_detect_gpio   = 0,        // Card detect
+        .card_detected_true = -1,       // What the GPIO read returns when a card is
+                                        // present. Use -1 if there is no card detect.
+        .use_card_detect    = false,
+                                        // Following attributes are dynamically assigned
+        .m_Status           = STA_NOINIT,
+        .sectors            = 0,
+        .card_type          = 0,
+    }
+};
+
+void spi0_dma_isr() { spi_irq_handler(&spis[0]); }
+
+/* ********************************************************************** */
+
+size_t sd_get_num() { return count_of(sd_cards); }
+
+sd_card_t *sd_get_by_num(size_t num) {
+    if (num <= sd_get_num()) {
+        return &sd_cards[num];
+    } else {
+        return NULL;
+    }
+}
+
+size_t spi_get_num() { return count_of(spis); }
+
+spi_t *spi_get_by_num(size_t num) {
+    if (num <= sd_get_num()) {
+        return &spis[num];
+    } else {
+        return NULL;
+    }
+}
+
+
+/* ------------------------------------------------------------------------- */
+
+/* the following needs to be included for ff_conf.h when using multiple partitions */
+
+
+PARTITION VolToPart [FF_VOLUMES] = {
+    {0, 0},     /* "0:" ==> 1st partition on the pd#0 */
+    {0, 1},     /* "1:" ==> 2nd partition on the pd#0 */
+    {0, 2},     /* "2:" ==> 3rd partition on the pd#0 */
+    {0, 3},     /* "3:" ==> 4th partition */
+                
+    {1, 0},
+    {1, 1},
+    {1, 2},
+    {1, 3},
+
+    {2, 0},
+    {2, 1}
+    //{2, 2},
+   // {2, 3}
+
+    //{3, 0},
+    //{3, 1},
+    //{3, 2},
+    //{3, 3}
+};
