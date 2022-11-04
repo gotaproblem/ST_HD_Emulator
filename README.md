@@ -18,6 +18,31 @@ The SPI interface doesn't work above 15MHz. Probably due to the sd card adaptors
 
 The CPU is clocked at 125 MHz. This seems to be reliable. Any lower and you'll have problems. I have overclocked the PICO up to 300 MHz and got higher transfer rates.
 
-Minor changes should be made to the fat FS config files ff.h anf ff_conf.h
+Minor changes should be made to the no-OS-FatFS config file ffconf.h
+
+FF_FS_LOCK          4
+
+FF_FS_TINY          1
+
+FF_VOLUME_STRS		"sd0","sd1"
+
+FF_STR_VOLUME_ID	1
+
+FF_VOLUMES		    2
+
+FF_LFN_UNICODE	    0
+
+FF_LFN_BUF		    FF_MAX_LFN
+
+FF_USE_LFN		    3
+
+FF_MAX_LFN		    128
+
+FF_USE_LABEL	    1
+
+FF_USE_STRFUNC	    0
+
+FF_FS_MINIMIZE	    2
+
 
 
