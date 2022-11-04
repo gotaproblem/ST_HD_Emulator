@@ -1,115 +1,29 @@
 /* 
+ * ATARI ST HDC Emulator
+ *
  * File:    emushell.c
  * Author:  Steve Bradford
- *
  * Created: 1st Nov 2022
  * 
  * Shell 
- * 
  */
 
 #include <stdio.h>
 #include <string.h>
 #include <pico/stdlib.h>
-#include <pico/util/datetime.h>
 #include "pico.h"
 #include "malloc.h"
-#include "hardware/pll.h"
-#include "hardware/clocks.h"
-#include "hardware/structs/pll.h"
-#include "hardware/structs/clocks.h"
-#include "hardware/vreg.h"
 #include "hardware/watchdog.h"
-#include "hardware/spi.h"
-#include "ff.h"
 #include "../emu.h"
 #include "emushell.h"
 
 
-extern int mountRAW ( void );
-extern int mountFS ( void );
+extern int  mountRAW ( void );
+extern int  mountFS  ( void );
+extern bool cpuFreq  ( char* );
+
 extern DRIVES   drv []; 
 
-
-void cpuFreq   ( char c );
-void rebootMCU ( void );
-void dateTime  ( char c );
-
-int CPUCLK;
-
-
-
-
-/* 
- * cpu clock
- * Minimum clock 133 MHz for this project
- * 
- */
-void cpuFreq ( char c )
-{	
-    int speeds [] = { 100, 125, 133, 200, 250, 300, 350, 400 };
-                                                
-    switch ( c )
-    {
-        case '+':
-            for ( int i = 0; i < sizeof (speeds); i++ ) 
-            {
-                if ( (speeds [i] == CPUCLK) && ( (i + 1) <= (sizeof (speeds) - 1) ) )
-                {
-                    CPUCLK = speeds [i + 1];
-                    break;
-                }
-            }
-
-            if ( CPUCLK > 300 )
-            {
-                vreg_set_voltage ( VREG_VOLTAGE_1_30 ); /* overclock cpu voltage - norm is 1.10v */
-                sleep_ms ( 100 );
-            }
-
-            else if ( CPUCLK > 200 )
-            {
-                vreg_set_voltage ( VREG_VOLTAGE_1_25 ); /* overclock cpu voltage - norm is 1.10v */
-                sleep_ms ( 100 );
-            }
-
-        break;
-
-        case '-':
-            for ( int i = 0; i < sizeof (speeds); i++ ) 
-            {
-                if ( (speeds [i] == CPUCLK) && ((i - 1) >= 0) )
-                {
-                    CPUCLK = speeds [i - 1];
-                    break;
-                }
-            }
-
-            if ( CPUCLK <= 200 )
-            {
-                vreg_set_voltage ( VREG_VOLTAGE_1_10 ); /* overclock cpu voltage - norm is 1.10v */
-                sleep_ms ( 100 );
-            }
-
-        break;
-
-        case 'd':
-            CPUCLK = 150;//133;
-
-            break;
-    }
-
-    
-    set_sys_clock_khz ( CPUCLK * 1000, false ); /* set PICO clock speed */
-    sleep_ms (100);
-    clock_configure ( clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, clock_get_hz ( clk_sys ), clock_get_hz ( clk_sys ) );
-    sleep_ms (100);
-    stdio_init_all ();                          /* CMakeLists.txt assigns serial out device - USB / UART */
-    //sleep_ms (100);
-
-    //printf ( "* CPU now running at %d MHz\n", clock_get_hz ( clk_sys ) / 1000 / 1000 );
-
-}
 
 
 
@@ -134,7 +48,7 @@ static COMMAND commands[] = {
   "<cmd>\n"
   "     displays more information about <cmd>\n" 
   "     valid commands are:\n"
-  "          chgdisk, date, help, mount, quit, reboot, status, time, unmount, uptime\n"
+  "          chgdisk, cpu, date, help, mount, quit, reboot, status, time, unmount, uptime\n"
 },
 
 { "date", 
@@ -204,6 +118,7 @@ void help ( char *command )
  *
  * valid commands are:
  *      chgdisk
+ *      cpu
  *      date
  *      help
  *      mount
@@ -264,11 +179,20 @@ bool shellCmd ( char *cmd )
         ret = BAD;
     }
 
+    else if ( strncmp (   argv[0],    "cpu",          3 ) == 0 )
+    {
+        if ( argc > 1 )
+            SYNTAX ( argv [0] )
+
+        else
+            cpuFreq ( argv[1] );
+    }
+
     else if ( strncmp (   argv[0],    "date",         4 ) == 0 )
-        emudate ( argv[1] );
+        ret = emudate ( argv[1] );
     
-    else if ( strncmp(   argv[0],    "help",         4 ) == 0 )
-        help( argv[1] );
+    else if ( strncmp(   argv[0],    "help",          4 ) == 0 )
+        help ( argv[1] );
     
     else if ( strncmp (   argv[0],    "mount",        5 ) == 0 )
     {
@@ -294,10 +218,10 @@ bool shellCmd ( char *cmd )
         rebootMCU ();
     
     else if ( strncmp (   argv[0],    "status",       6 ) == 0 )
-        ;//status();
+        status ();
     
     else if ( strncmp (   argv[0],    "time",         4 ) == 0 )
-        emutime ( argv[1] );
+        ret = emutime ( argv[1] );
     
     else if ( strncmp (   argv[0],    "unmount",      7 ) == 0 )
     {
@@ -310,7 +234,7 @@ bool shellCmd ( char *cmd )
     }
     
     else if ( strncmp (   argv[0],    "uptime",       6 ) == 0 )
-        uptime ();
+        ret = uptime ();
     
     free ( cmdcpy );
     

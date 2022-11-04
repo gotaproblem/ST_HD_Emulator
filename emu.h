@@ -1,8 +1,9 @@
 /*
- *
- * ATARI ST HARD DRIVE EMULATOR
- * Steve Bradford
- * September 2022
+ * ATARI ST HDC Emulator
+ * 
+ * File:    emu.h
+ * Author:  Steve Bradford
+ * Created: September 2022
  *
  * ACSI-AHDI Command Set
  * ref: Atari ACSI/DMA Integration Guide - June 28, 1991
@@ -179,8 +180,11 @@ Pin	Name	Description
 
 /* Emulator configuration */
 #define CONTROLLER_ADDRESS  0           /* Hard Drive Emulator Controller Address ( 0 - 6, do not use 7 ) */
-#define MAX_DRIVES          4           /* possible to have 7 drives (SD cards) per controller */
+#define MAX_DRIVES          2           /* possible to have 7 drives (SD cards) per controller, but we can only have 2 */
+#define MAX_MBR_PARTS       4
 #define MAX_LUNS            24          /* max of 23 logical units per drive C; thru Z: */
+#define MICROSD_CARD_CD0    true
+#define MICROSD_CARD_CD1    false
 
 #define LO                  0           /* signal level, 0v */
 #define HI                  1           /* signal level, vcc */
@@ -188,7 +192,11 @@ Pin	Name	Description
 #define ENABLE              0
 #define DISABLE             1
 
-#define VERSION             "1.0\0"     /* max length 6 */
+#define TITLE               "ATARI ACSI HDC Emulator\0"
+                            /* 1.0 Initial release */
+                            /* 1.1 altered for multiple sd-cards */
+                            /* 1.2 additional shell commands */
+#define VERSION             "1.2\0"     /* major.minor max length 6 */
 
 #define IRQ_LO()            gpio_put (IRQ, LO);
 #define IRQ_HI()            gpio_put (IRQ, HI);
@@ -226,11 +234,12 @@ extern volatile uint32_t intState;
 #define FREAD               true
 #define FWRITE              false
 
+#define MHZ                 1000000
 
 /* build options */
 #define WR_ENABLE           1           /* enable ACSI writes */
 #define DEBUG               1           /* enable debug stuff */
-
+#define ICD_RTC             1           /* include ICD RTC */
 
 
 
@@ -275,9 +284,13 @@ typedef struct DRIVE_INFO {
     char     volume    [10];            /* drive volume name - eg. "sd0, sd1" */
     char     volLabel  [12];            /* volume label - don't care what this is */
     uint32_t volSerial;                 /* volume serial number - unique for each micro-sd card */
-    uint8_t  partTotal;
+    uint8_t  partTotal;                 /* partitions on drive */
+
+    uint32_t offset;                    /* sector offset for start of drive */
 
     sd_card_t *pSD;
+
+    volatile uint32_t packetCount;      /* keep a tally of the command count for drive - just for stats */
 
 } DRIVES;
 

@@ -51,6 +51,8 @@ add_executable(
 	shell/emushell.c
 	shell/uptime.c
 	shell/datetime.c
+	shell/cpuclock.c
+	shell/status.c
 	)
 
 target_link_libraries( 

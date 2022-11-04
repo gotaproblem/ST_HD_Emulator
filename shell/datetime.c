@@ -1,14 +1,15 @@
-/*
- * ATARI ST HDC Emulator Shell Comands
+/* 
+ * ATARI ST HDC Emulator
  *
- * cmd:
- *      uptime
- *
- * syntax:
- *      Emu> uptime
- *
- * returns true on success
- *
+ * File:    datetime.c
+ * Author:  Steve Bradford
+ * Created: 1st Nov 2022
+ * 
+ * shell commands 
+ * Syntax:  date [ddmm[yy]]
+ * Syntax:  time [hhmm[ss]]
+ * 
+ * return true on success
  */
 
 #include <stdio.h>
@@ -48,7 +49,7 @@ bool emudate ( char *d )
         {
             rtc_get_datetime ( &dt );                                                /* without this, time component gets corrupted */
         
-            strncpy( dd, &d[0], 2 );
+            memcpy( dd, &d [0], 2 );
           
             day = atoi (dd);
 
@@ -57,7 +58,7 @@ bool emudate ( char *d )
 
             dt.day = day;
             
-            strncpy( mm, &d[2], 2 );
+            memcpy( mm, &d[2], 2 );
       
             mon = atoi (mm);
 
@@ -68,7 +69,7 @@ bool emudate ( char *d )
             
             if ( l == 6 )                                                       /* setting year as well */
             {
-                strncpy( yy, &d[4], 2 );
+                memcpy( yy, &d[4], 2 );
                
                 year = atoi (yy);
 
@@ -88,7 +89,9 @@ bool emudate ( char *d )
             return ret;
         }
     }
-                                                
+
+    sleep_ms (10); 
+
     rtc_get_datetime ( &dt );                                                       /* read what we set */
 
     daystr = calloc ( 4, 1 );
@@ -98,31 +101,31 @@ bool emudate ( char *d )
     dt.dotw = day;
     strcpy ( daystr, days [day] );
     
-    strncpy ( monstr, months [dt.month - 1], 3 );
+    strncpy ( monstr, months [dt.month - 1], 4 );
 
     switch ( dt.day )
     {
         case 1:                                 /* st */
         case 21:
         case 31:
-            strncpy ( estr, endstr[0], 2 );
+            memcpy ( estr, endstr[0], 2 );
             break;
         case 2:                                 /* nd */
         case 22:
-            strncpy ( estr, endstr[1], 2 );
+            memcpy ( estr, endstr[1], 2 );
             break;
         case 3:                                 /* rd */
         case 23:
-            strncpy ( estr, endstr[2], 2 );
+            memcpy ( estr, endstr[2], 2 );
             break;
         default:                                /* th */
-            strncpy ( estr, endstr[3], 2 );;
+            memcpy ( estr, endstr[3], 2 );;
     }
     
     estr[2] = 0;                                /* terminate string */
     
-    printf( "\t%s %02d%s %s %4d\n", daystr, dt.day, estr, monstr, dt.year );
-
+    printf( "%s%2d%s %s %4d\n", daystr, dt.day, estr, monstr, dt.year );
+/*
     if (    ( dt.month == 12 && dt.day >= 25 )
                 ||
             ( dt.month == 1 && dt.day <= 5 ) ) {
@@ -135,7 +138,7 @@ bool emudate ( char *d )
             printf( "\n" );
         }
     }
-    
+*/    
     free( monstr );
     free( daystr );
 
@@ -161,7 +164,7 @@ bool emutime ( char *t )
         {
             rtc_get_datetime ( &tm );           /* without this, the date component gets corrupted */
 
-            strncpy( hh, &t[0], 2 );
+            memcpy( hh, &t[0], 2 );
             hh[2] = 0;
             hr = atoi (hh);
             if ( hr < 0 || hr > 23 ) {
@@ -170,7 +173,7 @@ bool emutime ( char *t )
             }
             tm.hour = hr;
 
-            strncpy( mm, &t[2], 2 );
+            memcpy( mm, &t[2], 2 );
             mm[2] = 0;
             min = atoi (mm);
             if ( min < 0 || min > 59 ) {
@@ -181,7 +184,7 @@ bool emutime ( char *t )
 
             if ( l == 6 )                       /* setting seconds as well */
             {
-                strncpy( ss, &t[4], 2 );
+                memcpy( ss, &t[4], 2 );
                 ss[2] = 0;
                 sec = atoi (ss);
                 if ( sec < 0 || sec > 59 ) {
@@ -200,10 +203,11 @@ bool emutime ( char *t )
             return ret;
         }
     }
-                                                
+
+    sleep_ms (10);                            
     rtc_get_datetime ( &tm );                   /* read what we have set */
 
-    printf( "\t%02d:%02d:%02d\n", tm.hour, tm.min, tm.sec );
+    printf( "%02d:%02d:%02d\n", tm.hour, tm.min, tm.sec );
 
     return GOOD;
 }

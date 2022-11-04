@@ -1,12 +1,12 @@
 /*
- *
- * ATARI ST HARD DRIVE EMULATOR
- * Steve Bradford
- * September 2022
+ * ATARI ST HDC Emulator
+ * 
+ * File:    emucmd.h
+ * Author:  Steve Bradford
+ * Created: September 2022
  *
  * ACSI-AHDI Command Set
  * ref: Atari ACSI/DMA Integration Guide - June 28, 1991
- * 
  */
 
 #ifndef _ACSI_CMD_H
@@ -70,8 +70,6 @@ enum SCSI_ADDITIONAL_OP_CODES {
 
 
 typedef union {
-    
-    //uint32_t packetCount;
 
     struct {
         
@@ -79,22 +77,22 @@ typedef union {
             
             struct {
                 
-                uint8_t opcode : 5;         /* command byte opcode 0-0x1f */
-                uint8_t target : 3;         /* command byte target address 0-7 */
+                uint8_t opcode : 5;             /* command byte opcode 0-0x1f */
+                uint8_t target : 3;             /* command byte target address 0-7 */
                 
             };
-            uint8_t cmd;                    /* opcode and controller number */
+            uint8_t cmd;                        /* opcode and controller number */
             
         } DEVICE;                        
         
-        uint8_t msb;                        /* LBA - most-significant */
+        uint8_t msb;                            /* LBA - most-significant */
         uint8_t mid;
-        uint8_t lsb;                        /* LBA - least significant */
-        uint8_t len;                        /* operation length (usually sector count in 512 byte increments) */
-        uint8_t mod;                        /* operation modifiers in bits 6 and 7*/
-        uint8_t extra [11];                 /* possible extra command bytes for special commands */
-        uint8_t cmdLength;                  /* length of the command packet */
-        //uint8_t status;                     /* ACSI command return status */
+        uint8_t lsb;                            /* LBA - least significant */
+        uint8_t len;                            /* operation length (usually sector count in 512 byte increments) */
+        uint8_t mod;                            /* operation modifiers in bits 6 and 7*/
+        uint8_t extra [11];                     /* extra command bytes for extended commands */
+        uint8_t cmdLength;                      /* length of the command packet */
+
     };
     uint8_t b [18];
 

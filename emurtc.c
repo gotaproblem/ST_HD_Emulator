@@ -1,3 +1,13 @@
+/*
+ * ATARI ST HDC Emulator
+ * 
+ * File:    emurtc.c
+ * Author:  Steve Bradford
+ * Created: September 2022
+ *
+ * RTC string builder
+ */
+
 #include <string.h>
 #include <stdlib.h>
 #include <pico/stdlib.h>

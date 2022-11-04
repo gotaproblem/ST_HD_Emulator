@@ -1,14 +1,14 @@
 /*
- * ATARI ST HDC Emulator Shell Comands
+ * ATARI ST HDC Emulator
  *
- * cmd:
- *      uptime
+ * File:    uptime.c
+ * Author:  Steve Bradford
+ * Created: November 2022
  *
- * syntax:
- *      Emu> uptime
+ * Shell commands
+ * syntax:  uptime
  *
  * returns true on success
- *
  */
 
 #include <stdio.h>
@@ -37,7 +37,7 @@ bool uptime ( void )
     upmins = uptime / 60;
     upsecs = uptime % 60;
 
-    printf ( "\tWe have been running for %d day%s ", updays, updays != 1 ? "s\0" : "" );
+    printf ( "We have been running for %d day%s ", updays, updays != 1 ? "s\0" : "" );
     printf ( "%02d:%02d:%02d\n", uphrs, upmins, upsecs );
 
     return GOOD;

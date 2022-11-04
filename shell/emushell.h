@@ -1,7 +1,8 @@
 /* 
+ * ATARI ST HDC Emulator
+ *
  * File:    emushell.h
  * Author:  Steve Bradford
- *
  * Created: 1st Nov 2022
  * 
  * Shell header file
@@ -35,7 +36,7 @@
 /* psh declarations */
 int  chgdisk ( int, char* );
 void doShell (void );
-void cpuFreq ( char );
+
 
 /* external functions */
 extern bool emudate   (char*);
@@ -50,6 +51,8 @@ extern bool status    (void);
 extern bool emutime   (char*);
 extern bool umount    (int, int);
 extern bool uptime    (void);
+extern bool cpuFreq   (char* );
+extern bool status    (void);
 
 
 /* external variables */

@@ -1,3 +1,12 @@
+/*
+ * ATARI ST HDC Emulator
+ * 
+ * File:    mountfs.c
+ * Author:  Steve Bradford
+ * Created: September 2022
+ *
+ * PICO hardware initialisation
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,8 +69,8 @@ int HDC_PartitionCount ( DRIVES *pdrv )
 
 
         pdrv->luns [parts].sectorSize = (uint32_t)(bootsector [0x0b] << 8) | bootsector [0x0c];
-        printf ( "sector size is %d\n", pdrv->luns [parts].sectorSize );
-        printf ( "sectors per cluster is %d\n", bootsector [0x0d] );
+        //printf ( "sector size is %d\n", pdrv->luns [parts].sectorSize );
+        //printf ( "sectors per cluster is %d\n", bootsector [0x0d] );
 
 		printf ( "DOS MBR:\n" );
         
@@ -226,18 +235,18 @@ int mountFS ( void )
     char *filename [] = {"hd0.img", "hd1.img", "hd2.img", "hd3.img"};
     
     
-    //if ( SDCARD_CD )                            /* check micro-sd card is inserted */
+    /* initialise all online micro-sd cards */
+    for ( int d = 0; d < MAX_DRIVES; d++ ) 
     {
-        /* initialise all online micro-sd cards */
-        for ( int d = 0; d < MAX_DRIVES; d++ ) 
-        {
-            sprintf ( drv [d].volume, "%s%d:", volume, d );
-            //sprintf ( drv [d].volume, "%s", volume );
+        sprintf ( drv [d].volume, "%s%d:", volume, d );
 
-            drv [d].pSD = sd_get_by_num(0);
-            //strcpy ( drv [0].pSD->pcName, drv [d].volume );
-            //if ( ( n = f_mount ( &drv [d].fs, drv [d].volume, 1 ) ) == FR_OK ) 
-            if ( ( n = f_mount ( &drv [d].pSD->fatfs, drv [0].pSD->pcName, 1 ) ) == FR_OK ) 
+        drv [d].pSD = sd_get_by_num(d);
+       
+        if ( drv [d].pSD->card_detect_gpio )    /* check micro-sd card is inserted */
+        {
+            /* NOTE this will return error 13 if a partitioned SD card is installed 
+             * because there isn't a FAT filesystem to read */
+            if ( ( n = f_mount ( &drv [d].pSD->fatfs, drv [d].pSD->pcName, 1 ) ) == FR_OK ) 
             {   
                 /* should be "sd0:/hd0.img" */
                 sprintf ( imageName, "%s/%s", drv [d].volume, filename [d] );  
@@ -252,25 +261,23 @@ int mountFS ( void )
                     printf ( "\nVolume mounted: %s - label = %s - serial = 0x%08x\n",
                         drv [d].volume, drv [d].volLabel, drv [d].volSerial );
                     
-                    drv [d].partTotal = HDC_PartitionCount ( &drv [d]);
+                    drv [d].partTotal = HDC_PartitionCount ( &drv [d]);                    
                 }
-                
+#if DEBUG                
                 else
                 {
-                    printf ( "%s open failed, error %d\n", imageName, n );
+                    printf ( "\nmount %s open failed, error %d\n", imageName, n );
                 }
-            }
-
+#endif
+            } 
+#if DEBUG
             else
             {
-                printf ( "mount %s failed, error %d\n", drv [d].volume, n );
+                printf ( "\nmount %s failed, error %d\n", drv [d].pSD->pcName, n );
             }
+#endif
         }
     }
-
-    /* ICD RTC */
-    if ( !drv [0].luns [6].mounted )
-        drv [0].luns [6].mounted = true;
     
-    return drv [0].partTotal + drv [1].partTotal + drv [2].partTotal + drv [3].partTotal;
+    return drv [0].partTotal + drv [1].partTotal;
 }

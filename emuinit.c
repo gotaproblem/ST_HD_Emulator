@@ -1,3 +1,13 @@
+/*
+ * ATARI ST HDC Emulator
+ * 
+ * File:    emuinit.c
+ * Author:  Steve Bradford
+ * Created: September 2022
+ *
+ * PICO hardware initialisation
+ */
+
 #include <pico/stdlib.h>
 #include "emuinit.h"
 #include "shell/emushell.h"
@@ -7,7 +17,7 @@
 
 int EMUinit ( void )
 {
-    cpuFreq ( 'd' );                            /* set cpu clock etc. */
+    stdio_init_all ();                          /* CMakeLists.txt assigns serial out device - USB / UART */
 
     sleep_ms ( 3000 );                          /* give time to minicom (or similar) to establish comms */
 

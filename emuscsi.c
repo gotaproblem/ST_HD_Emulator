@@ -1,3 +1,13 @@
+/*
+ * ATARI ST HDC Emulator
+ * 
+ * File:    emuscsi.c
+ * Author:  Steve Bradford
+ * Created: September 2022
+ *
+ * SCSI commands
+ */
+
 #include <string.h>
 #include "emu.h"
 #include "emuscsi.h"

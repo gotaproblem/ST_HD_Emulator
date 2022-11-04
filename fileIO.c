@@ -1,3 +1,12 @@
+/*
+ * ATARI ST HDC Emulator
+ * 
+ * File:    fileio.c
+ * Author:  Steve Bradford
+ * Created: September 2022
+ *
+ * PICO hardware initialisation
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,8 +88,7 @@ static inline int __not_in_flash_func (rawRD) ( CommandDescriptorBlock *cdb, DRI
     {
         enableInterrupts ();
 
-        //if ( ( e = mydisk_read ( 0, DMAbuffer, drv->lba, length )) != FR_OK )
-        if ( ( e = sd_read_blocks ( drv->pSD, DMAbuffer, drv->lba, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+        if ( ( e = sd_read_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
         {
             drv->lastError = SCSI_ERR_READ;
             drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
@@ -90,7 +98,6 @@ static inline int __not_in_flash_func (rawRD) ( CommandDescriptorBlock *cdb, DRI
 
         else 
         {
-
             disableInterrupts ();
 
             wrDMA ( DMAbuffer, length * 512 );
@@ -127,8 +134,7 @@ static inline int __not_in_flash_func (rawWR) ( CommandDescriptorBlock *cdb, DRI
         enableInterrupts ();
         
 #if WR_ENABLE
-        //if ( ( e = mydisk_write ( 0, DMAbuffer, drv->lba, length )) != 0 )
-        if ( ( e = sd_write_blocks ( drv->pSD, DMAbuffer, drv->lba, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+        if ( ( e = sd_write_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
         {
             drv->lastError = SCSI_ERR_WRITE;
             drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
@@ -141,7 +147,7 @@ static inline int __not_in_flash_func (rawWR) ( CommandDescriptorBlock *cdb, DRI
 }
 
 
-static inline void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 {
     int e;
     UINT n;
@@ -149,8 +155,8 @@ static inline void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, D
     
     
     enableInterrupts ();
-
-    if ( ( e = f_lseek ( &drv->fp, drv->lba * 512 ) ) != FR_OK )
+    FIL *fp = &drv->fp;
+    if ( ( e = f_lseek ( fp, drv->lba * 512 ) ) != FR_OK )
     {
         drv->lastError = SCSI_ERR_READ;
         drv->status    = ERR_CNTRL_SEEK_ERROR;
@@ -180,7 +186,7 @@ static inline void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, D
 }
 
 
-static inline void __not_in_flash_func (fileWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+void __not_in_flash_func (fileWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 {
     int e;
     UINT n;
