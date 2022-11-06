@@ -29,9 +29,7 @@ bool status ( void )
     DRIVES *pdrv;
     bool ret = BAD;
 
-    printf ( "%s\nBuild %s - %s %s\n\n", TITLE, VERSION, __DATE__, __TIME__ );
-    //emudate ( "" );
-    //emutime ( "" );
+    printf ( "%sBuild %s\n\n", TITLE, VERSION );
 
     /* display hard drives connected */
     for ( int i = 0; i < MAX_DRIVES; i++ )

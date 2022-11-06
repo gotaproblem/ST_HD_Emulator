@@ -228,16 +228,16 @@ int mountRAW ( void )
             if ( sd_init_card ( drv [n].pSD ) == 0 )
             {
                 if ( n == 0 )
-                    drv [n].offset = 0; //0x800 >> 9;
+                    drv [n].offset = 0;
 
                 else if ( n == 1 )
-                    drv [n].offset = 0; //0x3a2800 >> 9;
+                    drv [n].offset = 0;
 
                 else if ( n == 2 )
-                    drv [n].offset = 0; //0x744800 >> 9;
+                    drv [n].offset = 0;
 
                 else if ( n == 3 )
-                    drv [n].offset = 0; //0xae6800 >> 9;
+                    drv [n].offset = 0;
 
 
                 rawPartitionCount ( &drv [n] );
@@ -251,7 +251,9 @@ int mountRAW ( void )
             }
             
             else
+            {
                 printf ( "ERROR: mountRAW init card failed on %d\n", n );
+            }
         }
     }  
     

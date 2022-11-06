@@ -34,7 +34,7 @@ spi_t spis[] = {                        // One for each SPI.
          * The choice of SD card may matter 
          * Samsung EVO Plus 24MHz and 50MHz (CPU CLOCK needs to be 133MHz) tested OK
          */
-        .baud_rate   = 15 * MHZ,
+        .baud_rate   = 31 * MHZ,
                                         // Following attributes are dynamically assigned
         .dma_isr     = spi0_dma_isr,
         .initialized = false,           // initialized flag

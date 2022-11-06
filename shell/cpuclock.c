@@ -27,17 +27,27 @@ int CPUCLK;
 
 /* 
  * cpu clock
- * Minimum clock is 125 MHz for this project
+ * Minimum clock is 3 * 38 = 114 MHz MHz for this project
  * 
+ * cpu clock speeds may seem odd, but they are calculated based on known good SPI
+ * clock speeds
+ * Gigastone    8GB max 41 MHz
+ * Sandisk     16GB max 38 MHz
+ * 
+ * Need to implement automatic SPI clock setting
  */
 bool cpuFreq ( char *input )
 {	
-    int speeds [7] = { 100, 125, 133, 150, 200, 250, 300 };
+    /*                  114       123            138            152       164       184       190            228       246            266       276            304      */
+    int speeds [] = { (3 * 38), (3 * 41), 125, (3 * 46), 150, (4 * 38), (4 * 41), (4 * 46), (5 * 38), 200, (6 * 38), (6 * 41), 250, (7 * 38), (6 * 46), 300, (8 * 38) };
     int f;
+    int currentClock = clock_get_hz ( clk_sys );
+
     
+    /* just report speeds */
     if ( *input == 0 )
     {
-        printf ( "CPU clock is running at %d MHz\n", clock_get_hz ( clk_sys ) / 1000 / 1000 );
+        printf ( "CPU clock is running at %d MHz\n", currentClock / 1000 / 1000 );
         printf ( "SPI clock is running at %d MHz\n", spi_get_baudrate ( spi0 ) / 1000000 );
 
         return BAD;
@@ -45,15 +55,14 @@ bool cpuFreq ( char *input )
 
     f = atoi ( input );
 
-    
-    if ( f < speeds [0] || f > speeds [6] )
+    if ( f < speeds [0] || f > speeds [ (sizeof (speeds) / 4) - 1] )
     {
         printf ( "\tCPU clock is running at %d MHz\n", clock_get_hz ( clk_sys ) / 1000 / 1000 );
 
         return BAD;
     }
                                                 
-    for ( int i = 0; i < 7; i++ )               /* set cpu clock to nearest (next highest) valid frequency */
+    for ( int i = 0; i < (sizeof (speeds) / 4); i++ )               /* set cpu clock to nearest (next highest) valid frequency */
     {
         if ( f <= speeds [i]  )
         {
@@ -62,7 +71,7 @@ bool cpuFreq ( char *input )
         }
     }
 
-    if ( CPUCLK == 300 )
+    if ( CPUCLK >= 300 )
         vreg_set_voltage ( VREG_VOLTAGE_1_25 ); /* overclock cpu voltage - norm is 1.10v */
 
     else if ( CPUCLK > 200 )
@@ -73,14 +82,27 @@ bool cpuFreq ( char *input )
 
     sleep_ms (100);
 
-    set_sys_clock_khz ( CPUCLK * 1000, false ); /* set PICO clock speed */
+    bool clock = set_sys_clock_khz ( CPUCLK * 1000, false ); /* set PICO clock speed */
     sleep_ms (100);
 
-    //clock_configure ( clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, clock_get_hz ( clk_sys ), clock_get_hz ( clk_sys ) );
-    //sleep_ms (100);
+    if ( !clock ) 
+    {
+        printf ( "\nUnable to set cpu clock to %d\n", CPUCLK );
 
-    //stdio_init_all ();                          /* CMakeLists.txt assigns serial out device - USB / UART */
-    //sleep_ms (10);
+        CPUCLK = currentClock;
+    }
+
+    /* I am struggling to sort the peripheral bus clock speed */
+    /* I have had to create a copy of the "spi_set_baudrate" to get the */
+    /* fastest SPI, which is now 24 MHz */
+
+    /* At power-on the SPI is half the cpu clock, which = 62 MHz */
+    /* and that gives us an SPI clock of 31 MHz. As soon as I change */
+    /* the cpu clock speed, the peripheral clock changes to 48 MHz */
+    /* which means the best SPI clock is 24 MHz */
+    //extern uint spi_set_baudrate_fast(spi_inst_t *spi, uint baudrate) ;
+    spi_set_baudrate_fast( spi0, 31 * MHZ );
+
     printf ( "\tCPU now running at %d MHz\n", clock_get_hz ( clk_sys ) / 1000 / 1000 );
     printf ( "\tSPI clock is running at %d MHz\n", spi_get_baudrate ( spi0 ) / 1000000 );
 

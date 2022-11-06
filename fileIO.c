@@ -76,35 +76,24 @@ static inline int __not_in_flash_func (rawRD) ( CommandDescriptorBlock *cdb, DRI
     if ( length == 0 )                          /* is this a ACSI read or SCSI read ? */
         length = drv->len;
 
-    if ( length > 255 )
-    {
-        printf ( "READ: request is too big\n" );
+    enableInterrupts ();
 
+    if ( ( e = sd_read_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+    {
         drv->lastError = SCSI_ERR_READ;
-        drv->status    = ERR_CMD_VOL_OVERFLOW;
+        drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
+
+        printf ( "READ: read failed %d, len = %d\n", e, length );
     }
-    
-    else
+
+    else 
     {
-        enableInterrupts ();
-
-        if ( ( e = sd_read_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
-        {
-            drv->lastError = SCSI_ERR_READ;
-            drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
-
-            printf ( "READ: read failed %d, len = %d\n", e, length );
-        }
-
-        else 
-        {
-            disableInterrupts ();
-
-            wrDMA ( DMAbuffer, length * 512 );
-        }
-
         disableInterrupts ();
+
+        wrDMA ( DMAbuffer, length << 9 );
     }
+
+    disableInterrupts ();
 }
 
 
@@ -117,46 +106,35 @@ static inline int __not_in_flash_func (rawWR) ( CommandDescriptorBlock *cdb, DRI
     if ( length == 0 )                          /* is this a ACSI write or SCSI write ? */
         length = drv->len;
     
-    if ( length > 255 )
-    {
-        printf ( "WRITE: request is too big\n" );
-
-        drv->lastError = SCSI_ERR_WRITE;
-        drv->status    = ERR_CMD_VOL_OVERFLOW;
-    }
-
-    else
-    {
-        disableInterrupts ();
-                    
-        rdDMA ( DMAbuffer, length * 512 );
-        
-        enableInterrupts ();
-        
+    disableInterrupts ();
+                
+    rdDMA ( DMAbuffer, length * 512 );
+    
+    enableInterrupts ();
+    
 #if WR_ENABLE
-        if ( ( e = sd_write_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
-        {
-            drv->lastError = SCSI_ERR_WRITE;
-            drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
+    if ( ( e = sd_write_blocks ( drv->pSD, DMAbuffer, drv->lba + drv->offset, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+    {
+        drv->lastError = SCSI_ERR_WRITE;
+        drv->status    = ERR_CNTRL_DATA_NOT_FOUND;
 
-            printf ( "WRITE: write failed %d, len = %d\n", e, length );
-        }
-#endif
-        disableInterrupts ();
+        printf ( "WRITE: write failed %d, len = %d\n", e, length );
     }
+#endif
+    disableInterrupts ();
 }
 
 
-void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+static inline void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 {
     int e;
     UINT n;
-    uint32_t tLength = cdb->len * 512;
+    uint32_t tLength = cdb->len << 9;
     
     
     enableInterrupts ();
-    FIL *fp = &drv->fp;
-    if ( ( e = f_lseek ( fp, drv->lba * 512 ) ) != FR_OK )
+   
+    if ( ( e = f_lseek ( &drv->fp, drv->lba * 512 ) ) != FR_OK )
     {
         drv->lastError = SCSI_ERR_READ;
         drv->status    = ERR_CNTRL_SEEK_ERROR;
@@ -186,11 +164,11 @@ void __not_in_flash_func (fileRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 }
 
 
-void __not_in_flash_func (fileWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+static inline void __not_in_flash_func (fileWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 {
     int e;
     UINT n;
-    uint32_t tLength = cdb->len * 512;
+    uint32_t tLength = cdb->len << 9;
     
     
     disableInterrupts ();
@@ -220,6 +198,7 @@ void __not_in_flash_func (fileWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
 #endif
     disableInterrupts ();
 }
+
 
 
 void __not_in_flash_func (fileIO) ( bool IOdirection, CommandDescriptorBlock *cdb, DRIVES *drv )

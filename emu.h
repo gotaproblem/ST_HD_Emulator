@@ -8,12 +8,8 @@
  * ACSI-AHDI Command Set
  * ref: Atari ACSI/DMA Integration Guide - June 28, 1991
  * 
- */
 
-
-
-
-/*  Atari ACSI DMA pinout, looking at the male connector at the ATARI computer:
+    Atari ACSI DMA pinout, looking at the male connector at the ATARI computer:
              19 pin D-SUB
     ---------------------------------
     \ 01 02 03 04 05 06 07 08 09 10 /
@@ -39,7 +35,7 @@ Pin	Name	Description
 17	GND	Ground
 18	R/W	Read/Write
 19	_DRQ    Data Request
-*/
+
 // ATARI Document Archive https://docs.dev-docs.org/
 // in category: "Hard Drive" Application Notes on the Atari Computer System Interface (ACSI) [Sep 27 1985]
 //
@@ -117,8 +113,49 @@ Pin	Name	Description
 // b)  250 ns (max)
 // c)  50 ns  (min)
 // DRQ Active LOW (open-collector) 1K Pullup on ATARI.
-
-
+ * 
+ *
+ *
+ * 
+ * Hardware configuration
+ * 
+ * 
+ * GPIO 00 - 29 are available to the programmer
+ * GPIO 16, 17, 18, 19 reserved for SPI0
+ * GPIO 23, 25 are not to be used because of board design
+ * 
+ * SPI0 assignments
+ * 16   SPI0_Rx   MISO (Master In Slave Out)
+ * 17   SPI0_CS
+ * 18   SPI0_CLK
+ * 19   SPI0_Tx   MOSI (Master Out Slave In)
+ * 
+ * GPIO assignments
+ * 00   Data bit 0              BIDIRECTIONAL
+ * 01   Data bit 1              BIDIRECTIONAL
+ * 02   Data bit 2              BIDIRECTIONAL
+ * 03   Data bit 3              BIDIRECTIONAL
+ * 04   Data bit 4              BIDIRECTIONAL
+ * 05   Data bit 5              BIDIRECTIONAL
+ * 06   Data bit 6              BIDIRECTIONAL
+ * 07   Data bit 7              BIDIRECTIONAL
+ * 08   /CS                     INPUT
+ * 09   /IRQ                    OUTPUT
+ * 10   /RST                    INPUT
+ * 11   /ACK                    INPUT
+ * 12   A1                      INPUT
+ * 13   R/W                     INPUT
+ * 14   /DRQ                    OUTPUT
+ * 15   /Interface Enable       OUTPUT          control tri-state octal driver chip on the data bus - low to enable
+ *                                      
+ *                                              NOTE - Hardware design - tie the DIR pin on the tri-state buffer to the RW signal
+ *                                                     meaning GPIO 20 will not be needed
+ * 16
+ * 17   microSD card 1 CS       OUTPUT
+ * 18
+ * 19
+ * 20   microSD card 2 CS       OUTPUT
+ */
 
 #ifndef _EMU_H
 #define _EMU_H
@@ -179,24 +216,33 @@ Pin	Name	Description
 
 
 /* Emulator configuration */
-#define CONTROLLER_ADDRESS  0           /* Hard Drive Emulator Controller Address ( 0 - 6, do not use 7 ) */
-#define MAX_DRIVES          2           /* possible to have 7 drives (SD cards) per controller, but we can only have 2 */
+#define TARGET0             0                   /* Hard Drive Emulator Controller Address 1st SD card */
+#define TARGET1             (TARGET0 + 1)       /* Hard Drive Emulator Controller Address 2nd SD card */
+#define TARGET6             (TARGET0 + 6)       /* ICD RTC */
+#define MAX_DRIVES          2                   /* possible to have 7 drives (SD cards) per controller, but we can only have 2 */
 #define MAX_MBR_PARTS       4
-#define MAX_LUNS            24          /* max of 23 logical units per drive C; thru Z: */
+#define MAX_LUNS            24                  /* max of 23 logical units per drive C; thru Z: */
 #define MICROSD_CARD_CD0    true
 #define MICROSD_CARD_CD1    false
 
-#define LO                  0           /* signal level, 0v */
-#define HI                  1           /* signal level, vcc */
+#define LO                  0                   /* signal level, 0v */
+#define HI                  1                   /* signal level, vcc */
 
 #define ENABLE              0
 #define DISABLE             1
 
-#define TITLE               "ATARI ACSI HDC Emulator\0"
-                            /* 1.0 Initial release */
-                            /* 1.1 altered for multiple sd-cards */
-                            /* 1.2 additional shell commands */
-#define VERSION             "1.2\0"     /* major.minor max length 6 */
+#define TITLE               "\n\033[2J" \
+                            "********************************\n" \
+                            "ATARI ACSI HDC Emulator\n" \
+                            __DATE__"  "__TIME__\
+                            "\nSteve Bradford\n" \
+                            "********************************\n"
+
+                                                /* 1.0 Initial release                             */
+                                                /* 1.1 altered for multiple sd-cards               */
+                                                /* 1.2 additional shell commands                   */
+                                                /* 1.3 fixed target id + spi config changes        */
+#define VERSION             "1.3\0"             /* major.minor max length 6 */
 
 #define IRQ_LO()            gpio_put (IRQ, LO);
 #define IRQ_HI()            gpio_put (IRQ, HI);
@@ -237,9 +283,9 @@ extern volatile uint32_t intState;
 #define MHZ                 1000000
 
 /* build options */
-#define WR_ENABLE           1           /* enable ACSI writes */
-#define DEBUG               1           /* enable debug stuff */
-#define ICD_RTC             1           /* include ICD RTC */
+#define WR_ENABLE           1                   /* enable ACSI writes */
+#define DEBUG               1                   /* enable debug stuff */
+#define ICD_RTC             1                   /* include ICD RTC */
 
 
 
@@ -256,41 +302,41 @@ extern volatile uint32_t intState;
 
 typedef struct LUN_INFO {
     
-    bool     mounted;                   /* true = lun (partition) mounted */
-    uint32_t sectorSize;                /* how big is a sector (bytes) */
-    uint32_t startSector;               /* starting sector number for this logical drive (partition) */
-    uint32_t endSector;                 /* ending sector number for this logical drive (partition) */
-    uint32_t sectorCount;               /* Total sectors for this logical drive (partition) */
+    bool     mounted;                           /* true = lun (partition) mounted */
+    uint32_t sectorSize;                        /* how big is a sector (bytes) */
+    uint32_t startSector;                       /* starting sector number for this logical drive (partition) */
+    uint32_t endSector;                         /* ending sector number for this logical drive (partition) */
+    uint32_t sectorCount;                       /* Total sectors for this logical drive (partition) */
     uint8_t  lun;
     
 } LUNS;
 
 typedef struct DRIVE_INFO {
 
-    uint8_t  status;                    /* drive current status */
+    uint8_t  status;                            /* drive current status */
     uint8_t  lastStatus;
-    bool     mounted;                   /* true = drive mounted */
-    bool     raw;                       /* true = a partioned micro-sd card, false = FAT32 *.img files */
-    bool     writable;                  /* false = read-only */
-    uint32_t lastError;                 /* SCSI 24 bit error code */
-    uint32_t lba;                       /* logical block address passed in by the command */
-    uint32_t len;                       /* data length for extended SCSI commands */
-    LUNS     luns      [MAX_LUNS];      /* Logical Unit Number (max 24 partitions C: - Z:) */
+    bool     mounted;                           /* true = drive mounted */
+    bool     raw;                               /* true = a partioned micro-sd card, false = FAT32 *.img files */
+    bool     writable;                          /* false = read-only */
+    uint32_t lastError;                         /* SCSI 24 bit error code */
+    uint32_t lba;                               /* logical block address passed in by the command */
+    uint32_t len;                               /* data length for extended SCSI commands */
+    LUNS     luns      [MAX_LUNS];              /* Logical Unit Number (max 24 partitions C: - Z:) */
 
-    FATFS    fs;                        /* FAT file system work space */
-    FIL      fp;                        /* FAT file pointer work space */
-    //DIR      dp;                        /* FAT directory pointer work space */
+    FATFS    fs;                                /* FAT file system work space */
+    FIL      fp;                                /* FAT file pointer work space */
+    //DIR      dp;                              /* FAT directory pointer work space */
 
-    char     volume    [10];            /* drive volume name - eg. "sd0, sd1" */
-    char     volLabel  [12];            /* volume label - don't care what this is */
-    uint32_t volSerial;                 /* volume serial number - unique for each micro-sd card */
-    uint8_t  partTotal;                 /* partitions on drive */
+    char     volume    [10];                    /* drive volume name - eg. "sd0, sd1" */
+    char     volLabel  [12];                    /* volume label - don't care what this is */
+    uint32_t volSerial;                         /* volume serial number - unique for each micro-sd card */
+    uint8_t  partTotal;                         /* partitions on drive */
 
-    uint32_t offset;                    /* sector offset for start of drive */
+    uint32_t offset;                            /* sector offset for start of drive */
 
     sd_card_t *pSD;
 
-    volatile uint32_t packetCount;      /* keep a tally of the command count for drive - just for stats */
+    volatile uint32_t packetCount;              /* keep a tally of the command count for drive - just for stats */
 
 } DRIVES;
 
