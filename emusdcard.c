@@ -44,13 +44,13 @@ spi_t spis[] = {                        // One for each SPI.
 // Hardware Configuration of the SD Card "objects"
 sd_card_t sd_cards[] = {         // One for each SD card
     {
-        .pcName             = "sd0:",   // Name used to mount device - refer to ff_conf.h
+        .pcName             = "sd0:",   // Name used to mount device - refer to ffconf.h
         .spi                = &spis[0], // Pointer to the SPI driving this card
         .ss_gpio            = MICROSD_CARD_CS0, // The SPI slave select GPIO for this SD card
         .card_detect_gpio   = MICROSD_CARD_CD0,        // Card detect
-        .card_detected_true = -1,       // What the GPIO read returns when a card is
+        .card_detected_true = false,       // What the GPIO read returns when a card is
                                         // present. Use -1 if there is no card detect.
-        .use_card_detect    = false,
+        .use_card_detect    = true,
                                         // Following attributes are dynamically assigned
         .m_Status           = STA_NOINIT,
         .sectors            = 0,
@@ -58,13 +58,13 @@ sd_card_t sd_cards[] = {         // One for each SD card
     },
 
     {
-        .pcName             = "sd1:",   // Name used to mount device - refer to ff_conf.h
+        .pcName             = "sd1:",   // Name used to mount device - refer to ffconf.h
         .spi                = &spis[0], // Pointer to the SPI driving this card
         .ss_gpio            = MICROSD_CARD_CS1, // The SPI slave select GPIO for this SD card
         .card_detect_gpio   = MICROSD_CARD_CD1,        // Card detect
-        .card_detected_true = -1,       // What the GPIO read returns when a card is
+        .card_detected_true = false,       // What the GPIO read returns when a card is
                                         // present. Use -1 if there is no card detect.
-        .use_card_detect    = false,
+        .use_card_detect    = true,
                                         // Following attributes are dynamically assigned
         .m_Status           = STA_NOINIT,
         .sectors            = 0,

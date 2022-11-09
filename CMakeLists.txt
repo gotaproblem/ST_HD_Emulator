@@ -53,6 +53,9 @@ add_executable(
 	shell/datetime.c
 	shell/cpuclock.c
 	shell/status.c
+	shell/emumount.c
+	emucheckcards.c
+	shell/cpdisk.c
 	)
 
 target_link_libraries( 

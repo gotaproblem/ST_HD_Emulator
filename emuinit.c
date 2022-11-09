@@ -39,8 +39,12 @@ int EMUinit ( void )
 
     gpio_set_pulls ( MICROSD_CARD_CS0, true, false );   /* pull-ups */
     gpio_set_pulls ( MICROSD_CARD_CS1, true, false );   /* pull-ups */
-    //gpio_set_pulls ( MICROSD_CARD_CD0, true, false );   /* pull-ups */
-    //gpio_set_pulls ( MICROSD_CARD_CD1, true, false );   /* pull-ups */    
+    gpio_set_pulls ( MICROSD_CARD_CD0, true, false );   /* pull-ups */
+    gpio_set_pulls ( MICROSD_CARD_CD1, true, false );   /* pull-ups */ 
+
+    /* OE on the bidirectional data-bus chip must be kept low on power-up / power-down */
+    /* so a higher drive strength is needed to compensate - 3.3v / 1kR = 3mA */
+    gpio_set_drive_strength ( DATA_BUS_CNTRL, GPIO_DRIVE_STRENGTH_4MA );  
     
     return 1;
 }

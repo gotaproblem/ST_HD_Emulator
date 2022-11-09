@@ -48,7 +48,7 @@ static COMMAND commands[] = {
   "<cmd>\n"
   "     displays more information about <cmd>\n" 
   "     valid commands are:\n"
-  "          chgdisk, cpu, date, help, mount, quit, reboot, status, time, unmount, uptime\n"
+  "          cpdisk, cpu, date, help, quit, reboot, status, time, uptime\n"
 },
 
 { "date", 
@@ -76,12 +76,11 @@ static COMMAND commands[] = {
   NULL 
 },
 
-{ "chgdisk",   
-  "change a drives disk image", 
-  "<drive> <disk image>\r\n"
-  "     <drive> must be a mounted drive\r\n"
-  "     <disk image> must be a valid disk image\r\n"
-  "     example: psh> chgdisk a: image\r\n"
+{ "cpdisk",   
+  "copy one disk to the other", 
+  "<src> <dst>\n"
+  "     <src> and <dst> must both be inserted\n"
+  "     example: Emu> cpdisk sd0 sd1\n"
 },
 
 { NULL, NULL, NULL }
@@ -117,16 +116,14 @@ void help ( char *command )
  * command parser
  *
  * valid commands are:
- *      chgdisk
+ *      cpdisk
  *      cpu
  *      date
  *      help
- *      mount
  *      quit
  *      reboot
  *      status
  *      time
- *      unmount
  *      uptime
  *
  * returns true on success
@@ -169,12 +166,12 @@ bool shellCmd ( char *cmd )
 
     ret = GOOD;
     
-    if     ( strncmp (   argv[0],     "chgdisk",      7 ) == 0 )
+    if     ( strncmp (   argv[0],     "cpdisk",       6 ) == 0 )
     {
         if ( argc != 2  )
             SYNTAX( argv[0] )
         else
-            ;//chgdisk ( toupper( *argv[1] ) - 'A', argv[2] );
+            cpdisk ( argv [1], argv [2] );
         
         ret = BAD;
     }
@@ -191,18 +188,8 @@ bool shellCmd ( char *cmd )
     else if ( strncmp (   argv[0],    "date",         4 ) == 0 )
         ret = emudate ( argv[1] );
     
-    else if ( strncmp(   argv[0],    "help",          4 ) == 0 )
+    else if ( strncmp(   argv[0],     "help",         4 ) == 0 )
         help ( argv[1] );
-    
-    else if ( strncmp (   argv[0],    "mount",        5 ) == 0 )
-    {
-        if ( argc == 2 )
-            ;//ret = mount( toupper( *argv[1] ) - 'A', argv[2], -1 );
-        else if ( argc == 3 )
-            ;//ret = mount( toupper( *argv[1] ) - 'A', argv[2], atoi( argv[3] ) - 1 );
-        else
-            SYNTAX( argv[0] );
-    }
     
     else if ( strncmp (   argv[0],    "quit",         4 ) == 0 )
     {
@@ -222,16 +209,6 @@ bool shellCmd ( char *cmd )
     
     else if ( strncmp (   argv[0],    "time",         4 ) == 0 )
         ret = emutime ( argv[1] );
-    
-    else if ( strncmp (   argv[0],    "unmount",      7 ) == 0 )
-    {
-        if ( argc < 1 )
-            SYNTAX( argv[0] )
-        else
-        {
-            ;//umount( toupper( *argv[1] ) - 'A', 1 );
-        }
-    }
     
     else if ( strncmp (   argv[0],    "uptime",       6 ) == 0 )
         ret = uptime ();

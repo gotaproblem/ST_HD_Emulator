@@ -39,21 +39,23 @@ void doShell (void );
 
 
 /* external functions */
-extern bool emudate   (char*);
-extern bool format    (char);
-extern void help      (char*);
-extern bool mount     (int, char*, int);
-extern void psh       (void);
-extern bool quit      (void);
-extern bool reboot    (void);
-extern bool rmdisk    (char*);
-extern bool status    (void);
-extern bool emutime   (char*);
-extern bool umount    (int, int);
-extern bool uptime    (void);
-extern bool cpuFreq   (char* );
-extern bool status    (void);
-
+extern bool emudate     (char*);
+extern bool format      (char);
+extern void help        (char*);
+extern bool mount       (int, char*, int);
+extern void psh         (void);
+extern bool quit        (void);
+extern bool reboot      (void);
+extern bool rmdisk      (char*);
+extern bool status      (void);
+extern bool emutime     (char*);
+extern bool umount      (int, int);
+extern bool uptime      (void);
+extern bool cpuFreq     (char* );
+extern bool status      (void);
+extern void emumount    (void);
+extern void emuunmount  (int);
+extern bool cpdisk      (char*, char*);
 
 /* external variables */
 

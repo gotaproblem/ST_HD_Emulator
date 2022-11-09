@@ -20,8 +20,6 @@
 
 #define HDC_ReadInt32(a, i) (((unsigned) a[i] << 24) | ((unsigned) a[i + 1] << 16) | ((unsigned) a[i + 2] << 8) | a[i + 3])
 
-
-
 extern DRIVES drv[];
 
 
@@ -137,7 +135,11 @@ int rawPartitionCount ( DRIVES *pdrv )
 		}
         
         if ( parts )
+        {   
+            pdrv->diskSize = (total / 2048) * 1024 * 1024;
+            //printf ( "disk size is %u\n", pdrv->diskSize );
 		    printf( "Total size: %.1f MB in %d partitions\n", total/2048.0, parts);
+        }
 	}
  
     else
@@ -178,8 +180,8 @@ int rawPartitionCount ( DRIVES *pdrv )
                 printf( "ATARI MBR "
                     "- Partition %d: ID=%s, start=0x%08x, size=%.1f MB, flags=0x%x %s%s\n",
                     parts, pid, 
-                    HDC_ReadInt32(pinfo, 4), //drv [0].luns [parts].startSector, 
-                    HDC_ReadInt32(pinfo, 8) / 2048.0, //drv [0].luns [parts].sectorCount / 2048.0, 
+                    pdrv->luns [parts].startSector,
+                    pdrv->luns [parts].sectorCount / 2048.0,
                     flags,
                     (flags & 0x80) ? "(boot)": "",
                     extended ? "(extended)" : "");
@@ -191,6 +193,8 @@ int rawPartitionCount ( DRIVES *pdrv )
         if ( parts )
         {
 		    total = HDC_ReadInt32(bootsector, 0x1C2);
+            pdrv->diskSize = (total / 2048) * 1024 * 1024;
+            //printf ( "disk size is %u\n", pdrv->diskSize );
 
 		    printf ( "- Total size: %.1f MB in %d partitions\n", total / 2048.0, parts );
         }
@@ -223,8 +227,10 @@ int mountRAW ( void )
     {
         drv [n].pSD = &sd_cards [n];
 
-        if ( drv [n].pSD->card_detect_gpio )             /* check micro-sd card is inserted */
+        if ( gpio_get (drv [n].pSD->card_detect_gpio) == false && drv [n].mounted == false )    /* check micro-sd card is inserted */
         {
+            sleep_ms (10);
+
             if ( sd_init_card ( drv [n].pSD ) == 0 )
             {
                 if ( n == 0 )
@@ -245,14 +251,14 @@ int mountRAW ( void )
 
                 if ( drv [n].mounted )
                 {
-                    printf ( "hd%d: mounted\n", n );
+                    printf ( "\n%s mounted\n\n", drv [n].pSD->pcName );
                     t++;
                 }
             }
             
             else
             {
-                printf ( "ERROR: mountRAW init card failed on %d\n", n );
+                printf ( "\nERROR: mountRAW init card failed on %s\n", drv [n].pSD->pcName );
             }
         }
     }  

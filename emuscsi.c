@@ -15,7 +15,7 @@
 
 void modeSense0 ( char *buf, DRIVES *pdrv, int lun )
 {
-    uint32_t blocks = pdrv->luns [lun].sectorCount;
+    uint32_t blocks = pdrv->luns [0].sectorCount;
 
 
     memset ( buf, 0, 16 );
@@ -36,7 +36,7 @@ void modeSense0 ( char *buf, DRIVES *pdrv, int lun )
 
 void modeSense4 ( char *buf, DRIVES *pdrv, int lun )
 {
-    uint32_t blocks = pdrv->luns [lun].sectorCount;
+    uint32_t blocks = pdrv->luns [0].sectorCount;
 
 
     memset ( buf, 0, 16 );

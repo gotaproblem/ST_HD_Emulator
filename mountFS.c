@@ -12,16 +12,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <pico/stdlib.h>
 #include "ff.h"
+#include "sd_card.h"
 #include "emu.h"
-
 
 
 #define HDC_ReadInt32(a, i) (((unsigned) a[i] << 24) | ((unsigned) a[i + 1] << 16) | ((unsigned) a[i + 2] << 8) | a[i + 3])
 
 extern DRIVES drv[];
-extern sd_card_t *sd_get_by_num (size_t);
-
 
 
 int HDC_PartitionCount ( DRIVES *pdrv )
@@ -240,12 +239,14 @@ int mountFS ( void )
     {
         sprintf ( drv [d].volume, "%s%d:", volume, d );
 
-        drv [d].pSD = sd_get_by_num(d);
-       
-        if ( drv [d].pSD->card_detect_gpio )    /* check micro-sd card is inserted */
+        drv [d].pSD = &sd_cards [d];
+    
+        if ( gpio_get (drv [d].pSD->card_detect_gpio) == false && drv [d].mounted == false )    /* check micro-sd card is inserted */
         {
+            sleep_ms (10);
+            
             /* NOTE this will return error 13 if a partitioned SD card is installed 
-             * because there isn't a FAT filesystem to read */
+            * because there isn't a FAT filesystem to read */
             if ( ( n = f_mount ( &drv [d].pSD->fatfs, drv [d].pSD->pcName, 1 ) ) == FR_OK ) 
             {   
                 /* should be "sd0:/hd0.img" */

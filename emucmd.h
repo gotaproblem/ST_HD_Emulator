@@ -77,11 +77,11 @@ typedef union {
             
             struct {
                 
-                uint8_t opcode : 5;             /* command byte opcode 0-0x1f */
-                uint8_t target : 3;             /* command byte target address 0-7 */
+                uint8_t opcode : 5;             /* command byte - opcode 0-0x1f */
+                uint8_t target : 3;             /* command byte - controller ID */
                 
             };
-            uint8_t cmd;                        /* opcode and controller number */
+            uint8_t cmd;                        /* opcode and controller ID */
             
         } DEVICE;                        
         

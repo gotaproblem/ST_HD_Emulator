@@ -24,6 +24,8 @@
 
 int CPUCLK;
 
+uint spi_set_baudrate_fast (spi_inst_t *spi, uint baudrate);
+
 
 /* 
  * cpu clock
@@ -92,6 +94,8 @@ bool cpuFreq ( char *input )
         CPUCLK = currentClock;
     }
 
+    else
+    {
     /* I am struggling to sort the peripheral bus clock speed */
     /* I have had to create a copy of the "spi_set_baudrate" to get the */
     /* fastest SPI, which is now 24 MHz */
@@ -100,11 +104,38 @@ bool cpuFreq ( char *input )
     /* and that gives us an SPI clock of 31 MHz. As soon as I change */
     /* the cpu clock speed, the peripheral clock changes to 48 MHz */
     /* which means the best SPI clock is 24 MHz */
-    //extern uint spi_set_baudrate_fast(spi_inst_t *spi, uint baudrate) ;
-    spi_set_baudrate_fast( spi0, 31 * MHZ );
+    
+        spi_set_baudrate_fast( spi0, 0 );
+    }
 
     printf ( "\tCPU now running at %d MHz\n", clock_get_hz ( clk_sys ) / 1000 / 1000 );
     printf ( "\tSPI clock is running at %d MHz\n", spi_get_baudrate ( spi0 ) / 1000000 );
 
     return GOOD;
+}
+
+
+/* orinal spi_set_baudrate () is in pico-sdk/src/rp2_common/hardware_spi/spi.c */
+
+/* 
+ * I am trying to optimise SPI bus clock - this is of course dependent upon the sd-card max speed 
+ * best I have got is 41 MHz using Gigastone 8GB card 
+ */
+uint spi_set_baudrate_fast ( spi_inst_t *spi, uint baudrate ) 
+{
+    uint freq_in = clock_get_hz ( clk_peri );
+    uint prescale, postdiv;
+
+    prescale = 2;
+    postdiv = 2;
+    
+    /* cpu clock needs to be > 166 MHz to attain these higher SPI clocks */
+    if ( (freq_in >> 1) < 42000000 )
+        postdiv = 1;
+
+    spi_get_hw(spi)->cpsr = prescale;
+    hw_write_masked(&spi_get_hw(spi)->cr0, (postdiv - 1) << SPI_SSPCR0_SCR_LSB, SPI_SSPCR0_SCR_BITS);
+
+   
+    return freq_in / (prescale * postdiv);
 }

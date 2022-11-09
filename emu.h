@@ -177,14 +177,14 @@ Pin	Name	Description
 #define A1                  12                  /* GPIO 12 input  */
 #define RW                  13                  /* GPIO 13 input  - read active-high, write active-low */
 #define DRQ                 14                  /* GPIO 14 output */
-#define DATA_BUS_CNTRL      15                  /* GPIO 15 output - data bus control - high goes tristate */
+#define DATA_BUS_CNTRL      15                  /* GPIO 15 output - data bus control - low high-impedance */
 #define SPI_SDO             16                  /* GPIO 16 output - MISO */
 #define MICROSD_CARD_CS0    17                  /* GPIO 17 output - microSD card adapter 1 CS, active-low */
 #define SPI_CLK             18                  /* GPIO 18 output - microSD SPI clock */
 #define SPI_SDI             19                  /* GPIO 19 input  - MOSI */
 #define MICROSD_CARD_CS1    20                  /* GPIO 20 output - microSD card adapter 2 CS, active-low */
-#define MICROSD_CARD_CS2    21                  /* GPIO 21 output - microSD card adapter 3 CS, active-low */
-#define MICROSD_CARD_CS3    22                  /* GPIO 20 output - microSD card adapter 4 CS, active-low */
+#define MICROSD_CARD_CD0    21                  /* GPIO 21 input  - microSD card adapter 1 CD, active-low */
+#define MICROSD_CARD_CD1    22                  /* GPIO 22 input  - microSD card adapter 2 CD, active-low */
 #define ONBOARD_LED         25                  /* GPIO 25 output - PI PICO onboard LED */
 #define CONTROLLER_SELECT   26                  /* GPIO 26 input  - hardware controller ID match - high = selected */
 
@@ -201,14 +201,12 @@ Pin	Name	Description
 /* GPIO output masks - 32 bit values */
 #define SPI_CS0_MASK        (1 << MICROSD_CARD_CS0) /* 0x00020000 */
 #define SPI_CS1_MASK        (1 << MICROSD_CARD_CS1) /* 0x00100000 */
-#define SPI_CS2_MASK        (1 << MICROSD_CARD_CS2) /* 0x00100000 */
-#define SPI_CS3_MASK        (1 << MICROSD_CARD_CS3) /* 0x00100000 */
-#define SPI_CS_MASK         SPI_CS0_MASK | SPI_CS1_MASK | SPI_CS2_MASK | SPI_CS3_MASK
+#define SPI_CS_MASK         (SPI_CS0_MASK | SPI_CS1_MASK) 
 #define LED_MASK            (1 << ONBOARD_LED)      /* 0x02000000 */
 #define DATA_BUS_CNTRL_MASK (1 << DATA_BUS_CNTRL)   /* 0x00008000 */
 #define ACSI_DATA_MASK      0x000000ff          /* bits 0 - 7  ACSI bus data bits */
 #define ACSI_CNTRL_MASK     0x00007f00          /* bits 8 - 14 ACSI bus control bits */
-#define GPIO_MASK (uint32_t)(0x027fffff)
+#define GPIO_MASK           0x1e7fffff          /* all gpio pins used for this project */
 
 /* set 1 for each GPIO as an output */  
 #define GPIO_OUTPUTS_MASK   ((uint32_t)(DRQ_MASK | SPI_CS_MASK | IRQ_MASK | LED_MASK | DATA_BUS_CNTRL_MASK ))
@@ -222,14 +220,13 @@ Pin	Name	Description
 #define MAX_DRIVES          2                   /* possible to have 7 drives (SD cards) per controller, but we can only have 2 */
 #define MAX_MBR_PARTS       4
 #define MAX_LUNS            24                  /* max of 23 logical units per drive C; thru Z: */
-#define MICROSD_CARD_CD0    true
-#define MICROSD_CARD_CD1    false
+
 
 #define LO                  0                   /* signal level, 0v */
 #define HI                  1                   /* signal level, vcc */
 
-#define ENABLE              0
-#define DISABLE             1
+#define ENABLE              1                   /* enable bidirectional voltage level translator chip */
+#define DISABLE             0                   /* disable bidirectional voltage level translator chip - tristate */
 
 #define TITLE               "\n\033[2J" \
                             "********************************\n" \
@@ -242,7 +239,8 @@ Pin	Name	Description
                                                 /* 1.1 altered for multiple sd-cards               */
                                                 /* 1.2 additional shell commands                   */
                                                 /* 1.3 fixed target id + spi config changes        */
-#define VERSION             "1.3\0"             /* major.minor max length 6 */
+                                                /* 1.4 two sd cards now functional + additional cpdisk shell command */
+#define VERSION             "1.4\0"             /* major.minor max length 6 */
 
 #define IRQ_LO()            gpio_put (IRQ, LO);
 #define IRQ_HI()            gpio_put (IRQ, HI);
@@ -253,7 +251,7 @@ extern volatile uint32_t intState;
 #define enableInterrupts()  ; //(restore_interrupts (intState))
 #define disableInterrupts() ; //(intState = save_and_disable_interrupts ())
 
-#define dataBus(s)          ; //gpio_put (DATA_BUS_CNTRL, s)
+#define dataBus(s)          gpio_put (DATA_BUS_CNTRL, s)
 #define newCMD()            gpio_get (A1) == LO && gpio_get (RW) == LO // future will be gpio_get (CONTROLLER_SELECT) == HI
 #define rdDataBus()         (gpio_get_all () & ACSI_DATA_MASK)
 #define wrDataBus(d)        gpio_put_masked ( ACSI_DATA_MASK, (d) )
@@ -313,30 +311,28 @@ typedef struct LUN_INFO {
 
 typedef struct DRIVE_INFO {
 
-    uint8_t  status;                            /* drive current status */
-    uint8_t  lastStatus;
-    bool     mounted;                           /* true = drive mounted */
-    bool     raw;                               /* true = a partioned micro-sd card, false = FAT32 *.img files */
-    bool     writable;                          /* false = read-only */
-    uint32_t lastError;                         /* SCSI 24 bit error code */
-    uint32_t lba;                               /* logical block address passed in by the command */
-    uint32_t len;                               /* data length for extended SCSI commands */
-    LUNS     luns      [MAX_LUNS];              /* Logical Unit Number (max 24 partitions C: - Z:) */
+    uint8_t   status;                           /* drive current status */
+    uint8_t   lastStatus;
+    bool      mounted;                          /* true = drive mounted */
+    bool      raw;                              /* true = a partioned micro-sd card, false = FAT32 *.img files */
+    //bool     writable;                          /* false = read-only */
+    uint32_t  lastError;                        /* SCSI 24 bit error code */
+    uint32_t  lba;                              /* logical block address passed in by the command */
+    uint32_t  len;                              /* data length for extended SCSI commands */
+    LUNS      luns      [MAX_LUNS];             /* Logical Unit Number (max 24 partitions C: - Z:) */
 
-    FATFS    fs;                                /* FAT file system work space */
-    FIL      fp;                                /* FAT file pointer work space */
+    FATFS     fs;                               /* FAT file system work space */
+    FIL       fp;                               /* FAT file pointer work space */
     //DIR      dp;                              /* FAT directory pointer work space */
 
-    char     volume    [10];                    /* drive volume name - eg. "sd0, sd1" */
-    char     volLabel  [12];                    /* volume label - don't care what this is */
-    uint32_t volSerial;                         /* volume serial number - unique for each micro-sd card */
-    uint8_t  partTotal;                         /* partitions on drive */
-
-    uint32_t offset;                            /* sector offset for start of drive */
-
+    char      volume    [10];                   /* drive volume name - eg. "sd0, sd1" */
+    char      volLabel  [12];                   /* volume label - don't care what this is */
+    uint32_t  volSerial;                        /* volume serial number - unique for each micro-sd card */
+    uint8_t   partTotal;                        /* partitions on drive */
+    uint32_t  offset;                           /* sector offset for start of drive */
     sd_card_t *pSD;
-
-    volatile uint32_t packetCount;              /* keep a tally of the command count for drive - just for stats */
+    uint32_t  packetCount;                      /* keep a tally of the command count for drive - just for stats */
+    uint32_t  diskSize;                         /* disk size in bytes */
 
 } DRIVES;
 
@@ -351,5 +347,9 @@ extern bool     sd_card_detect  ( sd_card_t *);
 extern uint64_t sd_sectors      ( sd_card_t *);
 extern void     modeSense0      ( char *, DRIVES *, int );
 extern void     modeSense4      ( char *, DRIVES *, int );
+extern void     checkSDcards    ( void );
+
+
+extern sd_card_t sd_cards [];
 
 #endif

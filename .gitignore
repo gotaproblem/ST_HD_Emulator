@@ -11,3 +11,6 @@
 /mysdcardio.h
 /settings.json
 /try copy.pio
+../../no-OS-FatFS
+pico-sdk
+tinyusb
