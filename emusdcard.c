@@ -12,13 +12,15 @@
 #include <pico/stdlib.h>
 #include "pico.h"   
 #include "hardware/spi.h"
-#include "ff.h"
-#include "diskio.h"
 #include "emu.h"
 
 
-void spi0_dma_isr();
 
+
+
+#if USEDMA
+void spi0_dma_isr();
+#endif
 
 // Hardware Configuration of SPI "objects"
 // Note: multiple SD cards can be driven by one SPI if they use different slave
@@ -34,9 +36,11 @@ spi_t spis[] = {                        // One for each SPI.
          * The choice of SD card may matter 
          * Samsung EVO Plus 24MHz and 50MHz (CPU CLOCK needs to be 133MHz) tested OK
          */
-        .baud_rate   = 31 * MHZ,
+        .baud_rate   = 50 * MHZ,
                                         // Following attributes are dynamically assigned
+#if USEDMA
         .dma_isr     = spi0_dma_isr,
+#endif
         .initialized = false,           // initialized flag
     }
 };
@@ -73,10 +77,10 @@ sd_card_t sd_cards[] = {         // One for each SD card
 };
 
 
-
-
-
+#if USEDMA
 void spi0_dma_isr() { spi_irq_handler(&spis[0]); }
+#endif
+
 
 /* ********************************************************************** */
 

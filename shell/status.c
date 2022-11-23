@@ -29,18 +29,20 @@ bool status ( void )
     DRIVES *pdrv;
     bool ret = BAD;
 
-    printf ( "%sBuild %s\n\n", TITLE, VERSION );
+    printf ( "%s\n", TITLE );
 
     /* display hard drives connected */
     for ( int i = 0; i < MAX_DRIVES; i++ )
     {
         pdrv = &drv [i];
 
-        if ( pdrv->mounted )
-        {
-            printf ( "Mounted drive: " );
-            printf ( "%s - command packets %d\n", pdrv->pSD->pcName, pdrv->packetCount );
-        }
+        //if ( pdrv->mounted )
+        //{
+            printf ( "%s %s - command packets %d\n", 
+                pdrv->pSD->pcName, 
+                pdrv->mounted ? "mounted  " : "unmounted",
+                pdrv->packetCount );
+        //}
     }
 
     /* display partitions */

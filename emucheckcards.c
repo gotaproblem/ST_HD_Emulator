@@ -10,6 +10,9 @@
 
 #include "emu.h"
 
+#define INSERTED        false
+#define NOT_INSERTED    true
+
 
 extern DRIVES drv[];
 
@@ -17,24 +20,30 @@ extern DRIVES drv[];
 extern void emumount ( void );
 extern void emuunmount ( int );
 
+
 void checkSDcards ( void )
 {
     for ( int d = 0; d < MAX_DRIVES; d++ )
     {
-        if ( ! drv [d].mounted )
+        /* check to see if card has been removed then re-inserted */
+        if ( drv [d].prevState != gpio_get (drv [d].pSD->card_detect_gpio) )
         {
-            if ( gpio_get (drv [d].pSD->card_detect_gpio) == false ) /* inserted */
-            {
-                emumount ();
-            }
+            drv [d].prevState = gpio_get (drv [d].pSD->card_detect_gpio);
+
+            if ( drv [d].ejected )
+                drv [d].ejected = false;        /* reset ejected flag */
         }
 
-        else 
+        if ( gpio_get (drv [d].pSD->card_detect_gpio) == INSERTED )
         {
-            if ( gpio_get (drv [d].pSD->card_detect_gpio) == true ) /* not inserted */
-            {
+            if ( ! drv [d].mounted && ! drv [d].ejected )
+                emumount ();
+        }
+
+        if ( gpio_get (drv [d].pSD->card_detect_gpio) == NOT_INSERTED )
+        {
+            if ( drv [d].mounted )
                 emuunmount (d);
-            }
         }
     }
 }

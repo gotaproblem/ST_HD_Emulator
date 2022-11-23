@@ -16,16 +16,21 @@
 #include "shell/emushell.h"
 
 
-
-
 int EMUinit ( void )
 {
-    /* initialise cpu clock to 133 MHz. No need other than to get higher SPI clock speed (33 MHz) */
-    set_sys_clock_khz ( 133 * 1000, false );
+    /* initialise cpu clock to xxx MHz. No need, other than to get faster SPI clock */
+
+    /* NOTE setting clock here, has a direct impact on the SPI clock. If it's too high
+     * the sd card may not work. 
+     */
+    /* 125 MHz seems to offer me the best compromise - SPI clock > 31 MHz is too high 
+     * for some cards I have 
+     */
+    set_sys_clock_khz ( 150 * 1000, false );
     
     clock_configure ( clk_peri, 
                       0, 
-                      CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, 
+                      CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
                       clock_get_hz ( clk_sys ), 
                       clock_get_hz ( clk_sys ) );
     
@@ -37,15 +42,22 @@ int EMUinit ( void )
     gpio_set_dir_masked    ( GPIO_MASK, GPIO_OUTPUTS_MASK );  
     gpio_set_dir_in_masked ( ACSI_DATA_MASK );
 
-    gpio_set_pulls ( MICROSD_CARD_CS0, true, false );   /* pull-ups */
-    gpio_set_pulls ( MICROSD_CARD_CS1, true, false );   /* pull-ups */
-    gpio_set_pulls ( MICROSD_CARD_CD0, true, false );   /* pull-ups */
-    gpio_set_pulls ( MICROSD_CARD_CD1, true, false );   /* pull-ups */ 
+#if !PROJECT_HARDWARE
+    /* when hardware is built, remove these */
+    gpio_pull_up ( IRQ );
+    gpio_pull_up ( DRQ );
+    gpio_pull_up ( MICROSD_CARD_CS0 );
+    gpio_pull_up ( MICROSD_CARD_CS1 );
+    gpio_pull_up ( MICROSD_CARD_CD0 );
+    gpio_pull_up ( MICROSD_CARD_CD1 );
+#endif
 
-    /* OE on the bidirectional data-bus chip must be kept low on power-up / power-down */
+    /* OE on the bidirectional data-bus chip must be kept low on power-up */
     /* so a higher drive strength is needed to compensate - 3.3v / 1kR = 3mA */
-    gpio_set_drive_strength ( DATA_BUS_CNTRL, GPIO_DRIVE_STRENGTH_4MA );  
-    
+    gpio_set_drive_strength ( DATA_BUS_CNTRL, GPIO_DRIVE_STRENGTH_4MA ); 
+    /* Likewise, IRQ and DRQ must be held high on power-up */ 
+    gpio_set_drive_strength ( IRQ, GPIO_DRIVE_STRENGTH_4MA ); 
+    gpio_set_drive_strength ( DRQ, GPIO_DRIVE_STRENGTH_4MA ); 
     return 1;
 }
 

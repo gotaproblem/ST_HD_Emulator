@@ -36,47 +36,49 @@
 #include "hardware/clocks.h"
 
 /* project specific includes */
-#include "ff.h"
-#include "emu.h"
 #include "emuerror.h"
+#include "emu.h"
 #include "emucmd.h"
 #include "emurtc.h"
 #include "shell/emushell.h"
-#include "emuscsi.h"
+//#include "emuscsi.h"
 #include "emuinit.h"
-#include "emufileio.h"
-
 
 
 
 /* prototypes */
-int     getCMD   ( CommandDescriptorBlock * );
-void    doStatus ( uint8_t );
-uint8_t rdDMA    ( uint8_t *, uint32_t );
-uint8_t wrDMA    ( uint8_t *, uint32_t );
+static int     getCMD   ( CommandDescriptorBlock * );
+static void    doStatus ( uint8_t );
+static int     rawRD    ( CommandDescriptorBlock *, DRIVES * );
+static int     rawWR    ( CommandDescriptorBlock *, DRIVES * );
+static uint8_t rdDMA    ( uint8_t *, uint32_t );
+static uint8_t wrDMA    ( uint8_t *, uint32_t );
 
 
-
-/* 56 bytes */
+/* 64 bytes */
 uint8_t INQUIRY_DATA [] =
 {
 	0,                                          /* device type 0 = direct access device */
 	0x80,                                       /* device type qualifier (removable) */
 	2,                                          /* ACSI/SCSI version */
 	2,                                          /* reserved */
-	51,                                         /* length of the following data */
+	59,                                         /* length of the following data */
 	0, 0, 0,                                    /* Vendor specific data */
 	'B','B','a','N','-','R','P','P',            /* T10 Vendor ID    8 chars */
-	' ','A','C','S','I',' ','H','D',            /* Product ID       8 chars */
-	'C',' ','S','D','0',' ',' ',' ',            /* Product Revision 8 chars */
-	'1','2','3','R','P','P','0','0',            /* Drive Serial Number  */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0             /* Vendor Unique - Empty */
+	' ','H','D','C',' ',' ','S','D',            /* Product ID       8 chars */
+	'#',' ','#','#','#',' ','G','B',            /* Product Revision 8 chars */
+	'1','.','x','x','0','0','0','0',            /* Firmware Revision (4) / Drive Serial Number (4) */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,            /* Vendor Unique - Empty */
+    0,0,0,0,0,0,0,0                             /* pad to 64 bytes - ATARI FIFO needs multiples of 16 bytes */
 };
 
 
 uint8_t  DMAbuffer [512 * 256] __not_in_flash();/* max transfer size 128 KB */
-DRIVES   drv       [MAX_DRIVES];                /* one controller can have 4 drives (uSD cards) */
-int      lastSeek;
+DRIVES   drv       [MAX_ID + 1];                /* IDs 0 - 6 */
+//int      lastSeek;
+#ifdef DEBUG
+volatile bool     VERBOSE;                      /* enable / disable debug print */
+#endif
 volatile uint32_t intState;                     /* interrupt state save/restore */
 volatile bool     gotRST;
 volatile bool     doPrint;
@@ -85,16 +87,15 @@ CommandDescriptorBlock gCDB;                    /* used for printing - copy of C
 
 volatile datetime_t gdttm;                      /* global date time structure - update once per minute */
 
+
 /*
- * test - run on second core
- * does this improve performance?
+ * run on second core
+ * 
  */
 
 void __not_in_flash_func (core1Entry) (void)
 {
-    int offset = 0;
     CommandDescriptorBlock sCMD;
-    uint8_t icdRTCbuff [100];
 
 
     memset ( &sCMD, 0, sizeof (CommandDescriptorBlock) );
@@ -106,6 +107,16 @@ void __not_in_flash_func (core1Entry) (void)
     dataBus (DISABLE);
     disableInterrupts ();
 
+    for ( int i = 0; i < MAX_ID; i++ )
+    {
+        drv [i].locked      = false;
+        drv [i].mounted     = false;
+        drv [i].packetCount = 0;
+        drv [i].partTotal   = 0;
+        drv [i].raw         = false;
+        drv [i].ejected     = false;
+        drv [i].prevState   = true;
+    }
 
     while ( 1 ) 
     {
@@ -122,7 +133,7 @@ void __not_in_flash_func (core1Entry) (void)
             
             gpio_set_dir_in_masked (ACSI_DATA_MASK); 
 #if DEBUG
-            printf ( "RESET\n" );
+            //printf ( "RESET\n" );
 #endif            
             waitRST ();                         /* wait for RST to go high */
         }
@@ -148,22 +159,27 @@ void __not_in_flash_func (core1Entry) (void)
             waitRW (LO);                        /* wait for RW to go high before continuing */
 
             /* check this command is for this controller 
-             * better to do in hardware with a switch selection */
-            if ( sCMD.DEVICE.target == TARGET0 || sCMD.DEVICE.target == TARGET1 )
+             * better to do in hardware with a switch selection ? */
+            if ( sCMD.DEVICE.target == TARGET0 || 
+                 sCMD.DEVICE.target == TARGET1 
+#if ICD_RTC
+                    || ( RTC_ENABLED && sCMD.DEVICE.target == TARGET6 ) )
+#else
+                )
+#endif
             {
                 sCMD.cmdLength = 6;
 
-                IRQ_LO ();                      /* take IRQ low to signal ATARI receipt */
+                IRQ_LO ();                      /* assert IRQ to tell ATARI to continue */
 
-                while ( gpio_get (A1) == LO );  /* subsequent command bytes are read whilst A1 is high */
-
+                waitA1 ();                      /* subsequent command bytes are read whilst A1 is high */
                 waitCS (); 
                 IRQ_HI ();  
                 sCMD.b [1] = rdDataBus ();      /* byte 2 - check for special/extended commands */
                 waitRW (LO);
                                                 /* we have a maximum of 12us to assert IRQ, starting....... now */
 
-                if ( sCMD.DEVICE.opcode == 0x1f ) /* ACSI commands are 5 bits, so highest ACSI command can only ever be 0x1f */
+                if ( sCMD.DEVICE.opcode == 0x1f ) /* ACSI commands use 5 bits, highest ACSI command is 0x1f */
                 {
                     sCMD.cmdLength = 7;         /* 6 + 1 */
 
@@ -189,84 +205,16 @@ void __not_in_flash_func (core1Entry) (void)
                 {       
                     waitCS ();                  /* ATARI tells us another byte is ready */
                     IRQ_HI ();  
-                    sCMD.b [d] = rdDataBus ();  /* bytes 1-n */
+                    sCMD.b [d] = rdDataBus ();  /* bytes 2-n */
                     waitRW (LO);         
                                                 /* the last command byte does NOT assert IRQ */
                     if ( d == (sCMD.cmdLength - 1) )
                         break;
                                       
-                    IRQ_LO ();                  /* signal ATARI we are ready for next byte */
+                    IRQ_LO ();                  /* tell ATARI we are ready for next byte */
                 }        
 
                 getCMD ( &sCMD );               /* process ACSI/SCSI command */
-            }
-
-#if ICD_RTC
-            /* ICD RTC */
-            else if ( sCMD.DEVICE.target == 6 )
-            {
-                //if ( ! drv [0].luns [6].mounted )
-                //    drv [0].luns [6].mounted = true;
-
-                if ( sCMD.b [0] == 0xc0 )
-                {
-                    icdRTCbuff [0] = sCMD.b [0];
-                    busy_wait_us (1);
-                    doStatus (0);               /* acknowledge with a zero tells ICD driver there is a RTC */
-                    
-/* ref. EmuTOS https://github.com/emutos/emutos/blob/master/bios/clock.c*/
-/* below should work but hangs */
-#ifdef TODO                
-                    int z = 1;
-                  
-                    for ( int r = 1; r < 13; r++ )
-                    {
-                        /* 4 bytes should be received now */
-                        for ( int i = 0; i < 4; i++ )
-                        {
-                            waitCS (); 
-                            IRQ_HI ();
-                            icdRTCbuff [z++] = rdDataBus ();
-                            waitRW (LO);
-
-                            if ( i < 3 )
-                                IRQ_LO ();
-                        }
-
-                        busy_wait_us (1);
-                        doStatus (0);           /* send back RTC data */
-
-                        if ( icdRTCbuff [z-4] == 0x40 )
-                            break;
-
-                        /* end of sequence */
-                        waitCS (); 
-                        icdRTCbuff [z++] = rdDataBus (); /* should be ending on 0xc0 */
-                        waitRW (LO);
-                    }
-
-                    IRQ_HI (); 
-
-                    printf ( "newICDRTC: " );
-                    for ( int r = 0, i = 0; r < z && z < 100; r++, i++ )
-                    {
-                        if ( i == 5 )
-                        {
-                            printf ( "\nICDRTC: " );
-                            i = 0;
-                        }
-
-                        printf ( "0x%02x ", icdRTCbuff [r] );
-                    }
-                    printf ( "\n" );
-#endif
-                }
-
-                else 
-                {
-                    IRQ_HI ();
-                    DRQ_HI ();
-                }
             }
 
             else                                /* ignore command, it wasn't for us */
@@ -274,7 +222,7 @@ void __not_in_flash_func (core1Entry) (void)
                 IRQ_HI ();
                 DRQ_HI ();
             }
-#endif
+
             /* end of command */
             dataBus (DISABLE);                  /* data-bus trisate */
         }
@@ -318,6 +266,9 @@ static inline void printCmd ( CommandDescriptorBlock *CDB, int status )
         case CMD_SEEK:
             sprintf ( cmdString, "CMD_SEEK       " );
             break;
+        case VENDOR_SPECIFIC:
+            sprintf ( cmdString, "VENDOR_SPECIFIC" );
+            break;
         case CMD_INQUIRY:
             sprintf ( cmdString, "CMD_INQUIRY    " );
             break;
@@ -326,6 +277,9 @@ static inline void printCmd ( CommandDescriptorBlock *CDB, int status )
             break;
         case MODE_SENSE:
             sprintf ( cmdString, "MODE_SENSE     " );
+            break;
+        case START_STOP:
+            sprintf ( cmdString, "START_STOP     " );
             break;
         case MEDIA_REMOVE:
             sprintf ( cmdString, "MEDIA_REMOVE   " );
@@ -344,7 +298,7 @@ static inline void printCmd ( CommandDescriptorBlock *CDB, int status )
             sprintf ( debugLine, "%s tgt=%d lun=%d (0x%02x:%02x:%02x:", 
                     cmdString, 
                     CDB->DEVICE.target, 
-                    CDB->msb >> 5,
+                    CDB->BYTE1.lun,
                     CDB->DEVICE.opcode,
                     CDB->b [1],
                     CDB->b [2]
@@ -353,7 +307,7 @@ static inline void printCmd ( CommandDescriptorBlock *CDB, int status )
         else if ( i == 2 && CDB->cmdLength > 6 )
             sprintf ( debugLine, "%s tgt=%d lun=%d (0x%02x:%02x:%02x:", 
                     cmdString, 
-                    CDB->DEVICE.target,//CDB->b [2] & 0x1f, 
+                    CDB->DEVICE.target,
                     CDB->b [2] >> 5,
                     CDB->DEVICE.opcode,
                     CDB->b [1],
@@ -383,28 +337,28 @@ int main ( void )
     rtc_init ();
     buildDateTime ();                           /* use compilation date/time to initialise RTC */
 
-    printf ( "%sBuild %s\n\n", TITLE, VERSION );
+    printf ( "%s\n", TITLE );
     printf ( "Hardware initialised\n" );
-    
-    emumount ();
-
     printf ( "CPU clock is running at %d MHz\n", clock_get_hz (clk_sys) / 1000000 );
-    /* spi speed can't be read until fs is mounted */
-    printf ( "SPI clock is running at %d MHz\n", spi_get_baudrate ( spi0 ) / 1000000 );
-    printf ( "RTC is %s - ", rtc_running ? "enabled" : "disabled" );
+    /* spi speed can't be read until card is mounted */
+    //printf ( "SPI clock is running at %d MHz\n", spi_get_baudrate ( spi0 ) / 1000000 );
+    printf ( "RTC Jumper is %s\n", gpio_get (RTC_ENABLED) ? "selected" : "not selected" );
 
-    if ( rtc_running )
-    {
-        printf ( "set date/time if required via shell\n" );
-    }
+    //if ( rtc_running )
+    //{
+    //    printf ( "set date/time if required via shell\n" );
+    //}
 
     printf ( "\nACSI HDC Emulator Running ... press ESC for shell\n\n" );
 
+#ifdef DEBUG
+    VERBOSE = true;
+#endif
     doPrint = false;                            /* flag to show if debug print is needed */
 
     sleep_ms (1000);
 
-    multicore_launch_core1 ( core1Entry );      /* one whole cpu to read commands in */
+    multicore_launch_core1 ( core1Entry );      /* one whole cpu dedicated to decoding commands etc. */
 
     gpio_put ( ONBOARD_LED, HI );               /* show we are initialised and running */
 
@@ -414,14 +368,18 @@ int main ( void )
     while ( true ) 
     {
 #if !DEBUG
+        printf ( "\033[2J" );
+
+        status ();
+
         rtc_get_datetime (&dt);
         datetime_to_str  ( datetime_buf, sizeof (datetime_buf), &dt );
-        printf ( "\033[2J\r%s      ", datetime_buf );
+        printf ( "\n%s\n", datetime_buf );
 
         sleep_ms (1000);
 #else
         /* do the debug print on this core to reduce overheads on other core */
-        if ( doPrint == true )
+        if ( doPrint && VERBOSE )
         {
             doPrint = false;
 
@@ -432,10 +390,13 @@ int main ( void )
         /* enter shell on ESC key */
         if ( getchar_timeout_us (0) == 0x1b )
         {
-            doShell ();
+            doShell ();                         /* there is a problem here... */
+                                                /* all the time, we are in the shell, we are not checking for sd card removal/insertion */
         }
 
         checkSDcards ();                        /* check sd cards insertion state */
+
+        //sleep_ms ( 100 );
     }
 
     return 0;
@@ -443,14 +404,11 @@ int main ( void )
 
 
 
-int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
+static inline int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
 {  
-    uint8_t  LUN;
-    uint8_t  TARGET;
-    uint8_t  dataPatternFlags;
-    uint8_t  dataPattern;
-    DRIVES   *pdrv;
-    bool     UNKNOWN_CMD = false;
+    register uint8_t LUN;
+    register uint8_t TARGET;
+    DRIVES           *pdrv;
    
 
     /* ============= */
@@ -458,20 +416,14 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
     /* ============= */
 
     TARGET = CDB->DEVICE.target;
-    LUN    = CDB->b [1] >> 5;
 
-    if ( TARGET > MAX_DRIVES )
-    {
-        printf ( "OOOPS! LUN is %d - only 0-1 valid\nCMD was:\n", TARGET );
-        doPrint = true;
-        gStatus = 1;
-        memcpy ( &gCDB, CDB, sizeof (CommandDescriptorBlock) );
-        doStatus ( gStatus );
+    if ( CDB->cmdLength == 6 )
+        LUN = CDB->BYTE1.lun; 
 
-        return 0;
-    }
+    else
+        LUN = CDB-> b [2] >> 5;
 
-    pdrv = &drv [TARGET];
+    pdrv    = &drv [TARGET]; 
 
     pdrv->packetCount += 1;                     /* increment packet counter for this drive - just for stats */
 
@@ -487,11 +439,29 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
                 * 
                 * NOTE status byte bits 5-7 = controller number
                 */
-            pdrv->status    = ( pdrv->mounted ? ERR_DRV_NO_ERROR : CHECK_CONDITION );
-            pdrv->lastError = ( pdrv->status ? 
-                ( ((uint32_t)SCSI_SK_NOT_READY << 16) | ((uint32_t)SCSI_ASC_MEDIUM_NOT_PRESENT << 8)  | SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION ) :
-                ( ((uint32_t)SCSI_SK_NO_SENSE << 16) | ((uint32_t)SCSI_ASC_NO_ADDITIONAL_SENSE << 8)  | SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION ) );
-            lastSeek        = false;
+#if ICD_RTC
+            if ( TARGET == TARGET6 )
+            {
+                pdrv->status = ERR_DRV_NO_ERROR;
+            }
+
+            else
+#endif
+            pdrv->status = pdrv->mounted ? ERR_DRV_NO_ERROR : CHECK_CONDITION;
+
+            if ( pdrv->status )
+            {
+                pdrv->lastError.SK   = SCSI_SK_NOT_READY;
+                pdrv->lastError.ASC  = SCSI_ASC_MEDIUM_NOT_PRESENT;
+                pdrv->lastError.ASCQ = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+            }
+
+            else
+            {
+                pdrv->lastError.SK   = SCSI_SK_NO_SENSE;
+                pdrv->lastError.ASC  = SCSI_ASC_NO_ADDITIONAL_SENSE;
+                pdrv->lastError.ASCQ = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+            }
 
             break;
 
@@ -526,12 +496,12 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
              */
 
             /* Information Sense */
-            DMAbuffer [8] =  0;                 /* byte 0 descriptor type */
-            DMAbuffer [9] =  0x0a;              /* byte 1 additional length */
+            DMAbuffer [8]  = 0;                 /* byte 0 descriptor type */
+            DMAbuffer [9]  = 0x0a;              /* byte 1 additional length */
             DMAbuffer [10] = 0x80;              /* byte 2 reserved - set valid bit if FIXED */
             DMAbuffer [11] = 0;                 /* byte 3 reserved */
-            DMAbuffer [12] = (pdrv->lastError >> 8) & 0xff;  /* Additional Sense Code */
-            DMAbuffer [13] = pdrv->lastError & 0xff;         /* Additional Sense Code Qualifier */
+            DMAbuffer [12] = pdrv->lastError.ASC;  /* Additional Sense Code */
+            DMAbuffer [13] = pdrv->lastError.ASCQ; /* Additional Sense Code Qualifier */
             DMAbuffer [14] = 0;                 /* Field replacable unit code */
             DMAbuffer [15] = 0;                 /* sense key specific information 15, 16, 17 */
             DMAbuffer [16] = 0;
@@ -556,194 +526,247 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
                     break;
             }
                
-            wrDMA ( DMAbuffer, 20 );
-
             pdrv->status = ERR_DRV_NO_ERROR;
-            lastSeek     = false;
+
+            wrDMA ( DMAbuffer, 20 );            /* need to do doStatus () ASAP after a wrDMA () */
 
             break;
 
         case FORMAT_UNIT:
-            dataPatternFlags = (CDB->msb & 0x0f) >> 2;
-
-            if ( dataPatternFlags )
-                dataPattern = CDB->mid;     /* byte to use to fill sectors */
+            pdrv->status = ERR_DRV_NO_ERROR;
+           
+            if ( ! pdrv->mounted )
+            {
+                pdrv->lastError.status = SCSI_ERR_INV_LUN;
+                pdrv->status           = ERR_CMD_INVALID_DRV;
+            }
 
             else
-                dataPattern = 0x6c;
-
-            /* NOTE ref. pg36 mentions Mode Select command - what is it? also Data Pattern Flag bits??? */
-
-            enableInterrupts ();
-            disableInterrupts ();
-        
-            /* Interleave Factor is not needed for an emulator */
-            
-
-            
-            pdrv->status = ERR_DRV_NO_ERROR;
-
-            //printf ( "FORMAT_DRIVE completed\n");
+            {
+                sd_erase ( pdrv->pSD );
+            }
 
             break;
 
         case CMD_READ:
-            pdrv->lastError = SCSI_ERR_OK;      /* SCSI error code */
-            pdrv->status    = ERR_DRV_NO_ERROR;
-            lastSeek        = true;
-
-            if ( ! pdrv->mounted )
+            if ( ! pdrv->mounted || LUN != 0 )
             {
-                pdrv->lastError = SCSI_ERR_INV_LUN;
-                pdrv->status    = ERR_CMD_INVALID_DRV;
+                pdrv->lastError.SK     = SCSI_SK_NOT_READY;
+                pdrv->lastError.ASC    = SCSI_ASC_MEDIUM_NOT_PRESENT;
+                pdrv->lastError.ASCQ   = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+                pdrv->status           = ERR_DRV_DRV_NOT_READY;
             }
 
             else 
             {
-                pdrv->lba  = ((uint32_t)CDB->msb & 0x1f) << 16; 
-                pdrv->lba |= (uint32_t)CDB->mid << 8;
-                pdrv->lba |= CDB->lsb;
+                pdrv->lba = (uint32_t)CDB->BYTE1.msbLBA << 16 | (uint32_t)CDB->mid << 8 | CDB->lsb;
                
-                fileIO ( FREAD, CDB, pdrv );
+                rawRD ( CDB, pdrv );
             }
         
             break;
 
-        case CMD_WRITE:
-            pdrv->lastError = SCSI_ERR_OK;
-            pdrv->status    = ERR_DRV_NO_ERROR;
-            lastSeek        = true;
-            
-            if ( ! pdrv->mounted ) 
+        case CMD_WRITE:            
+            if ( ! pdrv->mounted || LUN != 0 ) 
             {
-                pdrv->lastError = SCSI_ERR_INV_LUN;
-                pdrv->status    = ERR_CMD_INVALID_DRV;
+                pdrv->lastError.SK     = SCSI_SK_NOT_READY;
+                pdrv->lastError.ASC    = SCSI_ASC_MEDIUM_NOT_PRESENT;
+                pdrv->lastError.ASCQ   = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+                pdrv->status           = ERR_DRV_DRV_NOT_READY;
             }
 
             else 
             {
-                pdrv->lba  = ((uint32_t)CDB->msb & 0x1f) << 16; 
-                pdrv->lba |= (uint32_t)CDB->mid << 8;
-                pdrv->lba |= CDB->lsb;
+                pdrv->lba = (uint32_t)CDB->BYTE1.msbLBA << 16 | (uint32_t)CDB->mid << 8 | CDB->lsb;
 
-                fileIO ( FWRITE, CDB, pdrv );
+                rawWR ( CDB, pdrv );
             }
 
             break;
 
+        /* don't need this command */
         case CMD_SEEK:
-            pdrv->lba = (((uint32_t)CDB->msb & 0x1f) << 16) | 
-                        ((uint32_t)CDB->mid << 8) 
-                        | CDB->lsb;
+            pdrv->lastError.status = SCSI_ERR_OK;
+            pdrv->status           = ERR_DRV_NO_ERROR;
+
+            pdrv->lba  = (uint32_t)CDB->BYTE1.msbLBA << 16;
+            pdrv->lba |= (uint32_t)CDB->mid << 8;
+            pdrv->lba |= CDB->lsb;
             
-
-            /* don't need this command */
-
-            enableInterrupts ();
-            disableInterrupts ();
-
             break;
 
 
         case CMD_INQUIRY:
-            pdrv->lastError = SCSI_ERR_OK;       /* SCSI error code */
-            pdrv->status    = ERR_DRV_NO_ERROR;
-
-            if ( CDB->len <= 4 )
-                CDB->len = 4;                   //16; /* fill ATARI FIFO *??? / 
+            pdrv->lastError.status = SCSI_ERR_OK; 
+            pdrv->status           = ERR_DRV_NO_ERROR;
                
             memcpy ( DMAbuffer, INQUIRY_DATA, sizeof (INQUIRY_DATA) );
-
-            if ( CDB->DEVICE.target == TARGET1 )
+#if ICD_RTC
+            if ( TARGET == TARGET6 )
             {
-                DMAbuffer [28] = '1';
-            }
+                DMAbuffer [0] = 0x0e;           /* simplified direct access device */
+                DMAbuffer [1] = 0x00;           /* fixed */
 
-            if ( pdrv->mounted )
-                DMAbuffer [0] = 0x00;           /* device connected and is a direct access block device */
+                memcpy ( DMAbuffer + 8, "ICD     REAL TIME CLOCK ", 24 );
+            }
 
             else
-                DMAbuffer [0] = 0x7f;           /* this is causing me problems ??? hangs bus */
+            {
+#endif
+                char num [9];
+                int diskSize = (float)((float)(pdrv->pSD->sectors * 512) / 1000.0 / 1000.0 / 1000.0) + 0.5;
 
+                sprintf ( num, "%3d", diskSize );                
+
+                DMAbuffer [24] = '0' + (TARGET - CONTROLLER_ID);  /* alter the disk number in product revision field */
+                DMAbuffer [26] = num [0];
+                DMAbuffer [27] = num [1];
+                DMAbuffer [28] = num [2];
+                DMAbuffer [29] = ' ';
+                DMAbuffer [30] = 'G';
+                DMAbuffer [31] = 'B';
+
+                memcpy ( &DMAbuffer [32], VERSION, 4 );         /* include firmware revision */
+
+                DMAbuffer [39] = '0' + (TARGET - CONTROLLER_ID);/* alter drive serial number */
+                DMAbuffer [0] = 0x00;       /* device connected and is a direct access block device */
+
+                if ( LUN != 0 )
+                    DMAbuffer [0] = 0x7f;       /* this is causing me problems ??? hangs bus */
+#if ICD_RTC
+            }            
+#endif
+            if ( CDB->len < 64 )
+                DMAbuffer [4] = CDB->len - 5;
+                
             wrDMA ( DMAbuffer, CDB->len );
 
-            lastSeek     = false;
-            
             break;
-
-
-        /* SCSI commands */
-        // 0 OPERATION CODE (1Ah)
-        // 1 DBD (disable block descriptors) bit: bit 7 to 4 RES, bit3 DBD, bit 2 to 0 RES. --> DBD (disable block descriptors) bit.
-        // 2 PC (Page Control) field: First two bit (PC, Page Control) field, bit 5 to 0 PAGE CODE.
-        // 3 SUBPAGE CODE: The PAGE CODE and SUBPAGE CODE fields specify which mode pages and subpages to return (see table 349)
-        // 4 ALLOCATION LENGTH: The ALLOCATION LENGTH field is defined in 2.2.6.
-        // 5 CONTROL:
-        //
-        // Error
-        // send Status 2
-        // Success
-        case MODE_SENSE:
-            pdrv->status = ERR_DRV_NO_ERROR;
-            lastSeek     = false;
-
-            /* get sub-command */
-            switch ( CDB->b [2] ) {
-
-                /* MODE SENSE 0x00: */
-                case 0x00:
-                    modeSense0 ( DMAbuffer, pdrv, TARGET );
-
-                    wrDMA ( DMAbuffer, 16 );
-
-                    break;
-
-                /* MODE SENSE 0x04: Rigid disk geometry */
-                case 0x04:
-                    modeSense4 ( DMAbuffer, pdrv, TARGET );
-
-                    wrDMA ( DMAbuffer, 24 );
-
-                    break;
-
-                /* MODE SENSE 0x3f: Return all pages */
-                case 0x3f:
-                    memset ( DMAbuffer, 0, 44 );
-
-                    DMAbuffer [0] = 44;
-                    DMAbuffer [1] = 0;
-                    DMAbuffer [2] = 0;
-                    DMAbuffer [3] = 0;
-
-                    modeSense4 ( DMAbuffer + 4, pdrv, TARGET );
-                    modeSense0 ( DMAbuffer + 28, pdrv, TARGET );
-
-                    wrDMA ( DMAbuffer, 44 );
-
-                    break;
-
-                default:
-
-                    printf ( "MODE_SENSE: unsupported mode sense 0x%02x\n", CDB->b [2] );
-                    pdrv->status = ERR_CMD_INVALID_ARG;
-                    break;
-            }
-
-            break;
-
 
         /* 
          * non-ACSI, 
-         * so look for extended commands, SCSI commands or vendor specials ... 
+         * SCSI commands or vendor specific ... 
          */
         default:
 
             switch ( CDB->DEVICE.opcode )
             {
+                case START_STOP:
+                    pdrv->status         = CHECK_CONDITION;
+                    pdrv->lastError.SK   = SCSI_SK_NOT_READY;
+                    pdrv->lastError.ASC  = SCSI_ASC_LUN_NOT_READY;
+                    pdrv->lastError.ASCQ = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+
+                    break;
+
+                case READ_BLOCK_LIMITS:
+                    pdrv->status = ERR_DRV_NO_ERROR;
+
+                    break;
+
+                /* ICD RTC ??? */
+                case 0x13:
+                    pdrv->status = ERR_DRV_NO_ERROR;
+
+                    break;
+
+                case MODE_SELECT:
+                    pdrv->status = ERR_DRV_NO_ERROR;
+
+                    memset ( DMAbuffer, 0, CDB->len );
+
+                    /* what to do here? */
+
+                    break;
+
+                /* SCSI commands */
+                // 0 OPERATION CODE (1Ah)
+                // 1 DBD (disable block descriptors) bit: bit 7 to 4 RES, bit3 DBD, bit 2 to 0 RES. --> DBD (disable block descriptors) bit.
+                // 2 PC (Page Control) field: First two bit (PC, Page Control) field, bit 5 to 0 PAGE CODE.
+                // 3 SUBPAGE CODE: The PAGE CODE and SUBPAGE CODE fields specify which mode pages and subpages to return (see table 349)
+                // 4 ALLOCATION LENGTH: The ALLOCATION LENGTH field is defined in 2.2.6.
+                // 5 CONTROL:
+                //
+                // Error
+                // send Status 2
+                // Success
+                case MODE_SENSE:
+                    pdrv->status = ERR_DRV_NO_ERROR;
+
+                    /* get sub-command */
+                    switch ( CDB->b [2] ) {
+
+                        /* MODE SENSE 0x00: */
+                        case 0x00:
+                            modeSense0 ( DMAbuffer, pdrv, TARGET );
+
+                            wrDMA ( DMAbuffer, 16 );
+
+                            break;
+
+                        /* MODE SENSE 0x04: Rigid disk geometry */
+                        case 0x04:
+                            modeSense4 ( DMAbuffer, pdrv, TARGET );
+
+                            wrDMA ( DMAbuffer, 24 );
+
+                            break;
+
+                        /* MODE SENSE 0x3f: Return all pages */
+                        case 0x3f:
+                            memset ( DMAbuffer, 0, 44 );
+
+                            DMAbuffer [0] = 44;
+                            DMAbuffer [1] = 0;
+                            DMAbuffer [2] = 0;
+                            DMAbuffer [3] = 0;
+
+                            modeSense4 ( DMAbuffer + 4, pdrv, TARGET );
+                            modeSense0 ( DMAbuffer + 28, pdrv, TARGET );
+
+                            wrDMA ( DMAbuffer, 44 );
+
+                            break;
+
+                        case 0x40:
+                            /* page control bits 7 and 6 */
+                            /* 0x40 = page control 01 = changeable parameter values */
+
+                        case 0x48:
+                            /* page control bits 7 and 6 */
+                            /* page code bits 5, 4, 3, 2, 1, 0 */
+                            /* 0x48 = */
+
+                            pdrv->lastError.SK   = SCSI_SK_ILLEGAL_REQUEST;
+                            pdrv->lastError.ASC  = SCSI_ASC_INVALID_FIELD_IN_CDB;
+                            pdrv->lastError.ASCQ = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+                            pdrv->status         = CHECK_CONDITION;
+
+                            break;
+
+                        default:
+
+                            printf ( "MODE_SENSE: unsupported mode sense 0x%02x\n", CDB->b [2] );
+                            pdrv->status = ERR_CMD_INVALID_ARG;
+                            break;
+                    }
+
+                    break;
+
+                /* TODO Prevent / Allow media removal */
+                case MEDIA_REMOVE:
+                    pdrv->status = ERR_DRV_NO_ERROR;
+
+                    //if ( CDB->b [4] & 0x01 == 0x00 ) /* 0 = unlocked, 1 = locked */
+                        //emuunmount (TARGET);
+                    pdrv->locked = CDB-> b [4] & 0x01;              /* 0 = unlocked, 1 = locked */
+
+                    break;
+
                 /* extended commands */
                 case 0x1f:
-                    TARGET = CDB->b [0] >> 5;
-
+                    
+                    /* decode extended command */
                     switch ( CDB->b [1] )
                     {
                         /* A2STM image */
@@ -766,26 +789,33 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
 
                         /* 0x12 SCSI Inquiry */
                         case 0x12:       
-                            LUN = CDB->b [2] >> 5;
-
-                            memcpy ( DMAbuffer, INQUIRY_DATA, sizeof (INQUIRY_DATA) );
+                            pdrv->lastError.status = SCSI_ERR_OK;      /* SCSI error code */
+                            pdrv->status           = ERR_DRV_NO_ERROR;
                             
-                            if ( drv [TARGET].mounted )
-                                DMAbuffer [0] = 0x00;               /* device connected and is a direct access block device */
-
-                            else
-                                DMAbuffer [0] = 0x7f;
-
-                            if ( TARGET == TARGET1 )
+                            memcpy ( DMAbuffer, INQUIRY_DATA, sizeof (INQUIRY_DATA) );
+#if ICD_RTC
+                            if ( TARGET == TARGET6 )
                             {
-                                DMAbuffer [28] = '1';
+                                DMAbuffer [0] = 0x0e;           /* simplified direct access device */
+                                DMAbuffer [1] = 0x00;           /* fixed */
+
+                                memcpy ( DMAbuffer + 8, "ICD     REAL TIME CLOCK ", 24 );
                             }
 
-                            DMAbuffer [4] = CDB->b [5];
+                            else
+                            {
+#endif                           
+                                DMAbuffer [0] = 0x00;       /* device connected and is a direct access block device */
 
-                            wrDMA ( DMAbuffer, CDB->b [5] );
+                                if ( LUN != 0 )
+                                    DMAbuffer [0] = 0x7f;       /* this is causing me problems ??? hangs bus */
+#if ICD_RTC
+                            }            
+#endif
+                            if ( CDB->len < sizeof (INQUIRY_DATA) )
+                                DMAbuffer [4] = CDB->len - 5;
 
-                            lastSeek = false;
+                            wrDMA ( DMAbuffer, CDB->len );
 
                             break;
 
@@ -796,98 +826,96 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
 
                         /* 0x25 SCSI Read Capacity */
                         case SCSI_OP_READ_CAPACITY:
-                            //LUN             = CDB->b [2] >> 5;
-                            pdrv            = &drv [TARGET];
-                            pdrv->lastError = SCSI_ERR_OK;        /* SCSI error code */
-                            pdrv->status    = ERR_DRV_NO_ERROR;
+                            pdrv->lastError.status = SCSI_ERR_OK;          /* SCSI error code */
+                            pdrv->status           = ERR_DRV_NO_ERROR;
 
                             memset ( DMAbuffer, 0, 16 );
 
-                            { 
-                                uint32_t capacity = pdrv->luns [0].sectorCount;
+                            if ( pdrv->mounted )
+                            {
+                                uint32_t sectors = pdrv->pSD->sectors - 1;
 
-                                DMAbuffer [0] = (capacity >> 24) & 0xff;
-                                DMAbuffer [1] = (capacity >> 16) & 0xff;
-                                DMAbuffer [2] = (capacity >> 8)  & 0xff;
-                                DMAbuffer [3] = capacity & 0xff;
+                                DMAbuffer [0] = (sectors >> 24) & 0xff;
+                                DMAbuffer [1] = (sectors >> 16) & 0xff;
+                                DMAbuffer [2] = (sectors >> 8)  & 0xff;
+                                DMAbuffer [3] =  sectors        & 0xff;
+                                DMAbuffer [4] = 0x00;
+                                DMAbuffer [5] = 0x00;
+                                DMAbuffer [6] = 0x02;               /* always 512 bytes */
+                                DMAbuffer [7] = 0x00;
                             }
 
-                            DMAbuffer [4] = 0;
-                            DMAbuffer [5] = 0;
-                            DMAbuffer [6] = 0x02;                   /* always 512 bytes */
-                            DMAbuffer [7] = 0x00;
-
                             wrDMA ( DMAbuffer, 16 );
-
-                            lastSeek = false;
 
                             break;
 
                         /* 0x28 SCSI Read */
                         case SCSI_OP_READ:
-                        /* 0x3c SCSI Read Buffer */
-                        case SCSI_OP_READ_BUFFER:
-                            //LUN             = CDB->b [2] >> 5;
-                            pdrv            = &drv [TARGET];
-                            pdrv->lastError = SCSI_ERR_OK;          /* SCSI error code */
-                            pdrv->status    = ERR_DRV_NO_ERROR;
+                            if ( pdrv->mounted && LUN == 0 )
+                            {
+                                pdrv->lba =  (uint32_t)CDB->b [3] << 24 | 
+                                             (uint32_t)CDB->b [4] << 16 | 
+                                             (uint32_t)CDB->b [5] << 8  | 
+                                             (uint32_t)CDB->b [6];
 
-                            pdrv->lba = (( (uint32_t)CDB->b [3]) << 24) | 
-                                            (((uint32_t)CDB->b [4]) << 16) | 
-                                            (((uint32_t)CDB->b [5]) << 8) | 
-                                            (uint32_t)(CDB->b [6]);
+                                pdrv->len =  (uint32_t)CDB->b [8] << 8  | CDB->b [9];
 
-                            pdrv->len =  (((uint32_t)CDB->b [8]) << 8) | CDB->b [9];
-                            CDB->len  = 0;                          /* this is an extended command, so can't use CDB [4] length */
-                            lastSeek  = true;
-
-                            if ( pdrv->mounted )
-                                fileIO ( FREAD, CDB, pdrv );
+                                rawRD ( CDB, pdrv );
+                            } 
 
                             else
                             {
-                                pdrv->lastError = SCSI_ERR_INV_LUN;
-                                pdrv->status    = ERR_CMD_INVALID_DRV;
-                            }
-
+                                pdrv->lastError.SK     = SCSI_SK_NOT_READY;
+                                pdrv->lastError.ASC    = SCSI_ASC_MEDIUM_NOT_PRESENT;
+                                pdrv->lastError.ASCQ   = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+                                pdrv->status           = ERR_DRV_DRV_NOT_READY;
+                            }              
+                           
                             break;
 
                         /* 0x2a SCSI WRITE */
                         case SCSI_OP_WRITE:
-                        /* 0x3b SCSI Write Buffer */
-                        case SCSI_OP_WRITE_BUFFER:
-                            //LUN             = CDB->b [2] >> 5;
-                            pdrv            = &drv [TARGET];
-                            pdrv->lastError = SCSI_ERR_OK;        /* SCSI error code */
-                            pdrv->status    = ERR_DRV_NO_ERROR;
+                            if ( pdrv->mounted && LUN == 0 )
+                            {
+                                pdrv->lba = (uint32_t)CDB->b [3] << 24 | 
+                                            (uint32_t)CDB->b [4] << 16 | 
+                                            (uint32_t)CDB->b [5] << 8  | 
+                                            (uint32_t)CDB->b [6];
 
-                            pdrv->lba = (( (uint32_t)CDB->b [3]) << 24) | 
-                                         (((uint32_t)CDB->b [4]) << 16) | 
-                                         (((uint32_t)CDB->b [5]) << 8) | 
-                                          (uint32_t)(CDB->b [6]);
+                                pdrv->len = (uint32_t)CDB->b [8] << 8  | CDB->b [9];
 
-                            pdrv->len =  (((uint32_t)CDB->b [8]) << 8) | CDB->b [9];
-                            CDB->len    = 0;
-                            lastSeek    = true;
-
-                            if ( pdrv->mounted )
-                                fileIO ( FWRITE, CDB, pdrv );
+                                rawWR ( CDB, pdrv );
+                            }
 
                             else
                             {
-                                pdrv->lastError = SCSI_ERR_INV_LUN;
-                                pdrv->status    = ERR_CMD_INVALID_DRV;
+                                pdrv->lastError.SK     = SCSI_SK_NOT_READY;
+                                pdrv->lastError.ASC    = SCSI_ASC_MEDIUM_NOT_PRESENT;
+                                pdrv->lastError.ASCQ   = SCSI_ASCQ_NO_ADDITIONAL_SENSE_INFORMATION;
+                                pdrv->status           = ERR_DRV_DRV_NOT_READY;
                             }
+
+                            break;
+
+                        /* 0x3b SCSI Write Buffer - diags only */
+                        case SCSI_OP_WRITE_BUFFER:
+                            printf ( "requested SCSI_OP_WRITE_BUFFER\n" );
+                            break;
+
+                        /* 0x3c SCSI Read Buffer - diags only */
+                        case SCSI_OP_READ_BUFFER:
+                            printf ( "requested SCSI_OP_READ_BUFFER\n" );
+                            break;
+
+                        case SCSI_OP_REPORT_LUNS:
+                            /* always report 0 */
+                            printf ( "requested Report Luns\n" );
 
                             break;
 
                         /* unknown opcode */
                         default:
-                            //LUN          = CDB->b [2] >> 5;
-                            //pdrv         = &drv [LUN];
-                            lastSeek     = false;
-                            UNKNOWN_CMD  = true;
-                            //pdrv->status = ERR_CMD_INVALID_CMD; 
+                            pdrv->status = 0xff;
                             printf ( "unknown extended command 0x%02x\n", CDB->b [1] );
 
                             break;
@@ -896,11 +924,7 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
                     break;
 
                 default:
-                    //LUN          = CDB->b [1] >> 5;
-                    //pdrv         = &drv [LUN];
-                    lastSeek     = false;
-                    UNKNOWN_CMD  = true;
-                    //pdrv->status = ERR_CMD_INVALID_CMD; 
+                    pdrv->status = 0xff;
                     printf ( "unknown command 0x%02x\n", CDB->b [0] );
 
                     break;
@@ -914,23 +938,25 @@ int __not_in_flash_func (getCMD) ( CommandDescriptorBlock *CDB )
     /* ============= */
 
 #if DEBUG 
-    memcpy ( &gCDB, CDB, sizeof (CommandDescriptorBlock) );
-    gStatus = ( UNKNOWN_CMD ? 0xff : pdrv->status );
-    doPrint = true;
+    if (VERBOSE)
+    {
+        memcpy ( &gCDB, CDB, sizeof (CommandDescriptorBlock) );
+        gStatus = ( pdrv->status );
+        doPrint = true;                         /* tell other CPU to print debug info */
+    }
 #endif 
     
-    if ( ! UNKNOWN_CMD )
-        pdrv->lastStatus = pdrv->status;
+    pdrv->lastStatus = pdrv->status;
 
-    doStatus ( ( UNKNOWN_CMD ? 0xff : pdrv->status ) );             /* end of command - send status byte to ATARI */
+    doStatus ( pdrv->status );                  /* end of command - send status byte to ATARI */
 
     return 1;
 }
 
 
 
-/* optimise function by telling compiler to put function in RAM */
-void __not_in_flash_func (doStatus) ( uint8_t status )
+/* return command status (one byte) to ATARI */
+static inline void __not_in_flash_func (doStatus) ( uint8_t status )
 { 
     IRQ_LO ();                                  /* completes DMA (if any) */
     waitRW (LO);                                /* make sure RW is high = READ */
@@ -951,9 +977,10 @@ void __not_in_flash_func (doStatus) ( uint8_t status )
  * from perspective of peripheral
  * read DMA means the ATARI is doing a DMA write to us
  */
-inline uint8_t __not_in_flash_func (rdDMA) ( uint8_t *ptr, uint32_t length ) 
+static inline uint8_t __not_in_flash_func (rdDMA) ( uint8_t *ptr, uint32_t length ) 
 {
-    register int n;
+    register int d;
+    register int rdDelay;
 
     /* DMA transfers - read */
     /* Peripheral asserts DRQ, ATARI responds with ACK */
@@ -966,7 +993,7 @@ inline uint8_t __not_in_flash_func (rdDMA) ( uint8_t *ptr, uint32_t length )
     
     /* do the transfer as fast as we can - the ATARI is handling the handshaking */
     /* seems to be okay below 200 MHz before small delay is needed between bytes */
-    for ( uint32_t d = 0; d < length; d++ ) {
+    for ( d = 0; d < length; d++ ) {
 
         DRQ_LO ();
         waitACK (HI);
@@ -974,11 +1001,16 @@ inline uint8_t __not_in_flash_func (rdDMA) ( uint8_t *ptr, uint32_t length )
         DRQ_HI ();
         waitACK (LO);
 
-        /* apparently have to wait a minimum of 240ns before next DRQ LO */
-        //for ( n = 12; n; n-- )
+        /* 
+         * apparently have to wait a minimum of 240ns before next DRQ LO 
+         * however, in reality, at least on my ATARI 520 STFM, I getaway with ~50ns 
+         * NOTE this is with CPU @ 150 MHz and SPI @ 37 MHz 
+         */
+        /* 7 for SPI @ 37MHz */
+        /* */
+        for ( rdDelay = 7; rdDelay; rdDelay-- )
             Nop ();
-            Nop ();
-            Nop ();
+            
     }
     
     return ERR_DRV_NO_ERROR;
@@ -989,22 +1021,23 @@ inline uint8_t __not_in_flash_func (rdDMA) ( uint8_t *ptr, uint32_t length )
  * from perspective of peripheral
  * write DMA means the ATARI is doing a DMA read
  */
-inline uint8_t __not_in_flash_func (wrDMA) ( uint8_t *ptr, uint32_t length ) 
+static inline uint8_t __not_in_flash_func (wrDMA) ( uint8_t *ptr, uint32_t length ) 
 {
-    register int n;
+    register uint32_t d = length;
+    register uint32_t wrDelay;
 
     /* DMA transfers - write */
     /* Peripheral asserts DRQ, ATARI responds with ACK */
     /* RW stays high (READ) for duration */
-    /* at end assert IRQ */
+    /* at end assert IRQ - done in doStatus () */
     
     waitRD ();
     
-    gpio_set_dir_out_masked (ACSI_DATA_MASK);
+    gpio_set_dir_out_masked (ACSI_DATA_MASK);   /* make data gpio pins outputs */
     
     /* do the transfer as fast as we can - the ATARI is handling the handshaking */
     /* seems to be okay below 200 MHz    */
-    for ( uint32_t d = 0; d < length; d++ ) {
+    for ( ; d; d-- ) {
 
         DRQ_LO ();
         waitACK (HI);
@@ -1012,15 +1045,108 @@ inline uint8_t __not_in_flash_func (wrDMA) ( uint8_t *ptr, uint32_t length )
         DRQ_HI ();
         waitACK (LO);
 
-        /* hold data for at least 50ns */
-        //for ( n = 5; n; n-- )
-            //Nop ();
+        /* NOTE calculated with a 150 MHz CPU clock */
+        /* hold data for at least 50ns - reducing this delay DOES NOT increase read speed */
+        for ( wrDelay = 7; wrDelay; wrDelay-- )
+            Nop ();
     }
     
-    gpio_set_dir_in_masked (ACSI_DATA_MASK);
+    gpio_set_dir_in_masked (ACSI_DATA_MASK);    /* make data gpio pins inputs */
 
     return ERR_DRV_NO_ERROR;
 }
 
 
 
+/* ------------------------------------------------------------------------- */
+
+
+static inline int __not_in_flash_func (rawRD) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+{  
+    int e;
+    uint32_t length;
+
+
+    /* ACSI / SCSI (6) read */
+    if ( cdb->cmdLength == 6 )
+    {
+        length = cdb->len;
+
+        if ( length == 0 )
+            length = 256;
+    }
+
+    /* SCSI (10) read */
+    else
+    {                        
+        length = drv->len;
+    }
+
+    /* TODO check for length > 256 as exceded DMAbuffer size */
+
+    enableInterrupts ();
+
+    if ( ( e = sd_read_blocks ( drv->pSD, DMAbuffer, drv->lba, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+    {
+        drv->lastError.status = SCSI_ERR_READ;
+        drv->status           = ERR_CNTRL_DATA_NOT_FOUND;
+
+        printf ( "READ: read failed %d, len = %d\n", e, length );
+    }
+
+    else 
+    {
+        disableInterrupts ();
+
+        wrDMA ( DMAbuffer, length << 9 );
+
+        drv->lastError.status = SCSI_ERR_OK; 
+        drv->status           = ERR_DRV_NO_ERROR;
+    }
+
+    disableInterrupts ();
+}
+
+
+
+static inline int __not_in_flash_func (rawWR) ( CommandDescriptorBlock *cdb, DRIVES *drv )
+{
+    int e;
+    uint32_t length;
+
+
+    if ( cdb->cmdLength == 6 )
+    {
+        length = cdb->len;
+
+        if ( length == 0 )
+            length = 256;
+    }
+
+    else
+    {                        
+        length = drv->len;
+    }
+    
+    disableInterrupts ();
+                
+    rdDMA ( DMAbuffer, length << 9 );
+    
+    enableInterrupts ();
+    
+    if ( ( e = sd_write_blocks ( drv->pSD, DMAbuffer, drv->lba, length )) != SD_BLOCK_DEVICE_ERROR_NONE )
+    {
+        drv->lastError.status = SCSI_ERR_WRITE;
+        drv->status           = ERR_CNTRL_DATA_NOT_FOUND;
+
+        printf ( "WRITE: write failed %d, len = %d\n", e, length );
+    }
+
+    else
+    {
+        drv->lastError.status = SCSI_ERR_OK;
+        drv->status           = ERR_DRV_NO_ERROR;
+    }
+
+    disableInterrupts ();
+}

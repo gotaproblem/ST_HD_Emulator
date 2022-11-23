@@ -47,7 +47,7 @@ bool emudate ( char *d )
         
         if ( l == 4 || l == 6 )
         {
-            rtc_get_datetime ( &dt );                                                /* without this, time component gets corrupted */
+            rtc_get_datetime ( &dt );           /* without this, time component gets corrupted */
         
             memcpy( dd, &d [0], 2 );
           
@@ -67,7 +67,7 @@ bool emudate ( char *d )
 
             dt.month = mon;
             
-            if ( l == 6 )                                                       /* setting year as well */
+            if ( l == 6 )                       /* setting year as well */
             {
                 memcpy( yy, &d[4], 2 );
                
@@ -79,7 +79,9 @@ bool emudate ( char *d )
                 dt.year = year + 2000;
             }
 
-            rtc_set_datetime ( &dt );                                                /* set new date */
+            dt.dotw = dow ( &dt );              /* 0 - 6 (SUN - SAT) */
+
+            rtc_set_datetime ( &dt );           /* set new date */
         }
 
         else
@@ -97,9 +99,9 @@ bool emudate ( char *d )
     daystr = calloc ( 4, 1 );
     monstr = calloc ( 4, 1 );
 
-    day = dow ( &dt );                          /* 0 - 6 (SUN - SAT) */
-    dt.dotw = day;
-    strcpy ( daystr, days [day] );
+    //day = dow ( &dt );                          /* 0 - 6 (SUN - SAT) */
+    //dt.dotw = day;
+    strcpy ( daystr, days [dt.dotw] );
     
     strncpy ( monstr, months [dt.month - 1], 4 );
 
@@ -124,7 +126,7 @@ bool emudate ( char *d )
     
     estr[2] = 0;                                /* terminate string */
     
-    printf( "%s%2d%s %s %4d\n", daystr, dt.day, estr, monstr, dt.year );
+    printf( "%s %2d%s %s %4d\n", daystr, dt.day, estr, monstr, dt.year );
 /*
     if (    ( dt.month == 12 && dt.day >= 25 )
                 ||

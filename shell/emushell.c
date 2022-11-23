@@ -48,7 +48,7 @@ static COMMAND commands[] = {
   "<cmd>\n"
   "     displays more information about <cmd>\n" 
   "     valid commands are:\n"
-  "          cpdisk, cpu, date, help, quit, reboot, status, time, uptime\n"
+  "          cpdisk, cpu, date, debug, help, quit, reboot, status, time, uptime\n"
 },
 
 { "date", 
@@ -119,6 +119,7 @@ void help ( char *command )
  *      cpdisk
  *      cpu
  *      date
+ *      debug
  *      help
  *      quit
  *      reboot
@@ -187,6 +188,15 @@ bool shellCmd ( char *cmd )
 
     else if ( strncmp (   argv[0],    "date",         4 ) == 0 )
         ret = emudate ( argv[1] );
+
+    else if ( strncmp (   argv[0],    "debug",        5 ) == 0 )
+    {
+        if ( argc != 1 )
+            SYNTAX ( argv [0] )
+
+        else
+            debugVerbose ( argv[1] );
+    }
     
     else if ( strncmp(   argv[0],     "help",         4 ) == 0 )
         help ( argv[1] );

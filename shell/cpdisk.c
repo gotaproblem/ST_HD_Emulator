@@ -12,11 +12,9 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <string.h>
-#include "sd_card.h"
-#include "diskio.h"
+#include "../sdcard/sd_card.h"
 
 /* project specific includes */
-#include "ff.h"
 #include "../emu.h"
 #include "emushell.h"
 
@@ -40,6 +38,7 @@ bool cpdisk ( char *src, char *dst )
     int  srcdsk, dstdsk;
     sd_card_t *psrcdrv, *pdstdrv;
     uint64_t start;
+    uint32_t duration;
     uint32_t e, r, w;
     uint32_t tx;
 
@@ -64,14 +63,14 @@ bool cpdisk ( char *src, char *dst )
                 /* start copy */
                 printf ( "Copying %s to %s\n", src, dst );
 
-                tx = drv [srcdsk].diskSize / 131072;   /* number of transfers using 128k buffer */
+                tx = ( (drv [srcdsk].diskSize * 512) / 131072) + 1;   /* number of transfers using 128k buffer */
                 start = time_us_64 ();
 
                 for ( int n = 0; n < tx; n++ )
                 {
-                    if ( ( e = sd_read_blocks ( drv [srcdsk].pSD, DMAbuffer, n << 8, 256 )) == SD_BLOCK_DEVICE_ERROR_NONE )
+                    if ( ( e = sd_read_blocks ( drv [srcdsk].pSD, DMAbuffer, n * 256, 256 )) == SD_BLOCK_DEVICE_ERROR_NONE )
                     {
-                        if ( ( e = sd_write_blocks ( drv [dstdsk].pSD, DMAbuffer, n << 8, 256 )) == SD_BLOCK_DEVICE_ERROR_NONE )
+                        if ( ( e = sd_write_blocks ( drv [dstdsk].pSD, DMAbuffer, n * 256, 256 )) == SD_BLOCK_DEVICE_ERROR_NONE )
                         {
                             printf ( " %%%3.1f complete\r", ((float)n / (float)tx) * 100 );
                         }
@@ -89,8 +88,10 @@ bool cpdisk ( char *src, char *dst )
                     
                 }
 
+                duration = (time_us_64 () - start) / 1000000;       /* seconds */
                 printf ( "\n" );
-                printf ( "Copy completed in %u seconds\n", (uint32_t)((time_us_64 () - start) / 1000000) );
+                printf ( "Copy completed in %u seconds\n", duration );
+                printf ( "%.1f KB/s\n", (float)((drv [srcdsk].diskSize * 512) / 1024 ) / (float)duration );
             }
 
             else

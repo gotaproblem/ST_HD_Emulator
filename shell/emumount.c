@@ -9,16 +9,16 @@
 
 #include <stdio.h>
 #include <stdbool.h>
-#include "sd_card.h"
-#include "diskio.h"
+#include "../sdcard/sd_card.h"
+//#include "../fatfs/diskio.h"
 
 /* project specific includes */
-#include "ff.h"
+#include "../emuscsi.h"
 #include "../emu.h"
 #include "emushell.h"
 
 
-extern DRIVES drv[];
+extern DRIVES drv [];
 
 
 void emumount ( void )
@@ -40,8 +40,13 @@ void emuunmount ( int disk )
     if ( drv [disk].mounted )
     {
         sd_init_card ( drv [disk].pSD );        /* need to call this to reset status bits */
-
-        drv [disk].mounted = false;             /* mark as unmounted */
+        
+        drv [disk].pSD->sectors = 0;
+        drv [disk].packetCount  = 0;
+        drv [disk].mounted      = false;        /* mark as unmounted */
+                                                /* card has been unmounted but is still inserted, so eject it */
+        if ( gpio_get (drv [disk].pSD->card_detect_gpio) == false )
+            drv [disk].ejected = true;
 
         printf ( "\n%s unmounted\n", drv [disk].pSD->pcName );
     }

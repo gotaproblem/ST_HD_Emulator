@@ -56,6 +56,7 @@ extern bool status      (void);
 extern void emumount    (void);
 extern void emuunmount  (int);
 extern bool cpdisk      (char*, char*);
+extern void debugVerbose (char*);
 
 /* external variables */
 

@@ -164,8 +164,8 @@ Pin	Name	Description
 #include <stdbool.h>
 #include "hardware/spi.h"
 #include "hardware/sync.h"
-#include "sd_card.h"
-
+#include "sdcard/sd_card.h"
+#include "emuscsi.h"
 
 
 /* GPIO assignments by GPIO number */
@@ -177,16 +177,18 @@ Pin	Name	Description
 #define A1                  12                  /* GPIO 12 input  */
 #define RW                  13                  /* GPIO 13 input  - read active-high, write active-low */
 #define DRQ                 14                  /* GPIO 14 output */
-#define DATA_BUS_CNTRL      15                  /* GPIO 15 output - data bus control - low high-impedance */
+#define DATA_BUS_CNTRL      15                  /* GPIO 15 output - data bus control - low = high-impedance */
 #define SPI_SDO             16                  /* GPIO 16 output - MISO */
-#define MICROSD_CARD_CS0    17                  /* GPIO 17 output - microSD card adapter 1 CS, active-low */
+#define MICROSD_CARD_CS0    17                  /* GPIO 17 output - microSD card socket 1 CS, active-low */
 #define SPI_CLK             18                  /* GPIO 18 output - microSD SPI clock */
 #define SPI_SDI             19                  /* GPIO 19 input  - MOSI */
-#define MICROSD_CARD_CS1    20                  /* GPIO 20 output - microSD card adapter 2 CS, active-low */
-#define MICROSD_CARD_CD0    21                  /* GPIO 21 input  - microSD card adapter 1 CD, active-low */
-#define MICROSD_CARD_CD1    22                  /* GPIO 22 input  - microSD card adapter 2 CD, active-low */
+#define MICROSD_CARD_CS1    20                  /* GPIO 20 output - microSD card socket 2 CS, active-low */
+#define MICROSD_CARD_CD0    21                  /* GPIO 21 input  - microSD card socket 1 CD, active-low */
+#define MICROSD_CARD_CD1    22                  /* GPIO 22 input  - microSD card socket 2 CD, active-low */
 #define ONBOARD_LED         25                  /* GPIO 25 output - PI PICO onboard LED */
 #define CONTROLLER_SELECT   26                  /* GPIO 26 input  - hardware controller ID match - high = selected */
+#define RTC_ENABLED         27                  /* GPIO 27 input  - hardware jumper 5-6 ON = high = RTC enabled */
+#define GPIO28              28                  /* GPIO 28 input  - not used */
 
 /* ACSI BUS signals */
 #define DATA_MASK           (1 << D0)           /* 0x00000000 */
@@ -214,13 +216,16 @@ Pin	Name	Description
 
 
 /* Emulator configuration */
-#define TARGET0             0                   /* Hard Drive Emulator Controller Address 1st SD card */
-#define TARGET1             (TARGET0 + 1)       /* Hard Drive Emulator Controller Address 2nd SD card */
-#define TARGET6             (TARGET0 + 6)       /* ICD RTC */
-#define MAX_DRIVES          2                   /* possible to have 7 drives (SD cards) per controller, but we can only have 2 */
-#define MAX_MBR_PARTS       4
-#define MAX_LUNS            24                  /* max of 23 logical units per drive C; thru Z: */
-
+#define CONTROLLER_ID       0                   /* we identify as this ID - MAX ID 3 */
+                                                /* NOTE the hardware is limited to setting IDs 0-3 only */
+                                                /* ID + 1 is assigned though eg. select ID 3, ID3 AND ID4 will be used */
+#define TARGET0             CONTROLLER_ID       /* Hard Drive Emulator Controller Address 1st SD card */
+#define TARGET1             (CONTROLLER_ID + 1) /* Hard Drive Emulator Controller Address 2nd SD card */
+#define TARGET6             6                   /* ICD RTC  - we use this ID if hardware RTC is enabled */
+#define MAX_DRIVES          2                   /* physical constraints mean we can only have 2 micro-sd cards */
+#define MAX_ID              7                   /* 7 should never be used - reserved for the host ie. the ATARI PC */
+#define MAX_MBR_PARTS       4                   /* */
+#define MAX_LUNS            8                   /* max of 8 logical units per controller */
 
 #define LO                  0                   /* signal level, 0v */
 #define HI                  1                   /* signal level, vcc */
@@ -228,28 +233,30 @@ Pin	Name	Description
 #define ENABLE              1                   /* enable bidirectional voltage level translator chip */
 #define DISABLE             0                   /* disable bidirectional voltage level translator chip - tristate */
 
+
+                                                /* 1.0  Initial release                                                    */
+                                                /* 1.1  altered for multiple sd-cards                                      */
+                                                /* 1.2  additional shell commands                                          */
+                                                /* 1.3  fixed target id + spi config changes                               */
+                                                /* 1.4  two sd cards now functional + additional cpdisk shell command      */
+                                                /* 1.41 added extra GPIO for RTC enable - ICD driver only (ID6)            */
+                                                /* 1.5  sd-card optimisations - added local sdcard and spi interface files */
+                                                /* 1.51 code optimisations all over and code tidy-up                       */
+
+#define VERSION             "1.51"              /* major.minor max length 4 */
 #define TITLE               "\n\033[2J" \
                             "********************************\n" \
                             "ATARI ACSI HDC Emulator\n" \
                             __DATE__"  "__TIME__\
-                            "\nSteve Bradford\n" \
+                            "\nBuild "\
+                            VERSION\
+                            "   Steve Bradford\n" \
                             "********************************\n"
-
-                                                /* 1.0 Initial release                             */
-                                                /* 1.1 altered for multiple sd-cards               */
-                                                /* 1.2 additional shell commands                   */
-                                                /* 1.3 fixed target id + spi config changes        */
-                                                /* 1.4 two sd cards now functional + additional cpdisk shell command */
-#define VERSION             "1.4\0"             /* major.minor max length 6 */
 
 #define IRQ_LO()            gpio_put (IRQ, LO);
 #define IRQ_HI()            gpio_put (IRQ, HI);
 #define DRQ_LO()            gpio_put (DRQ, LO);
 #define DRQ_HI()            gpio_put (DRQ, HI);
-
-extern volatile uint32_t intState;
-#define enableInterrupts()  ; //(restore_interrupts (intState))
-#define disableInterrupts() ; //(intState = save_and_disable_interrupts ())
 
 #define dataBus(s)          gpio_put (DATA_BUS_CNTRL, s)
 #define newCMD()            gpio_get (A1) == LO && gpio_get (RW) == LO // future will be gpio_get (CONTROLLER_SELECT) == HI
@@ -281,11 +288,20 @@ extern volatile uint32_t intState;
 #define MHZ                 1000000
 
 /* build options */
-#define WR_ENABLE           1                   /* enable ACSI writes */
 #define DEBUG               1                   /* enable debug stuff */
-#define ICD_RTC             1                   /* include ICD RTC */
+#define ICD_RTC             0                   /* include ICD RTC */
+#define USEDMA              1                   /* use DMA transfers for SPI - sdcard/spi.h also needs this define */
+#define PROJECT_HARDWARE    0                   /* set when using project hardware */
 
+#if USEDMA
+ extern volatile uint32_t intState;
 
+ #define enableInterrupts()  ; //(restore_interrupts (intState))
+ #define disableInterrupts() ; //(intState = save_and_disable_interrupts ())
+#else
+ #define enableInterrupts() ;
+ #define disableInterrupts() ;
+#endif
 
 /* 
  * disk drive structures 
@@ -298,43 +314,30 @@ extern volatile uint32_t intState;
  * 
  */
 
-typedef struct LUN_INFO {
-    
-    bool     mounted;                           /* true = lun (partition) mounted */
-    uint32_t sectorSize;                        /* how big is a sector (bytes) */
-    uint32_t startSector;                       /* starting sector number for this logical drive (partition) */
-    uint32_t endSector;                         /* ending sector number for this logical drive (partition) */
-    uint32_t sectorCount;                       /* Total sectors for this logical drive (partition) */
-    uint8_t  lun;
-    
-} LUNS;
-
-typedef struct DRIVE_INFO {
+typedef struct DRIVE_INFO 
+{    
+    bool      writeProtected;                   /* true = write protected */
 
     uint8_t   status;                           /* drive current status */
     uint8_t   lastStatus;
     bool      mounted;                          /* true = drive mounted */
     bool      raw;                              /* true = a partioned micro-sd card, false = FAT32 *.img files */
-    //bool     writable;                          /* false = read-only */
-    uint32_t  lastError;                        /* SCSI 24 bit error code */
-    uint32_t  lba;                              /* logical block address passed in by the command */
-    uint32_t  len;                              /* data length for extended SCSI commands */
-    LUNS      luns      [MAX_LUNS];             /* Logical Unit Number (max 24 partitions C: - Z:) */
+    bool      ejected;                          /* true = disk eject command issued */
+    bool      prevState;                        /* false = inserted, true = removed */
+    bool      locked;                           /* prevent / allow media removal - true = locked (prevent) */
+    
+    scsiStatus_t lastError;                     /* SCSI 24 bit error code */
+    uint32_t     lba;                           /* logical block address passed in by the command */
+    uint32_t     len;                           /* data length for extended SCSI commands */
 
-    FATFS     fs;                               /* FAT file system work space */
-    FIL       fp;                               /* FAT file pointer work space */
-    //DIR      dp;                              /* FAT directory pointer work space */
-
-    char      volume    [10];                   /* drive volume name - eg. "sd0, sd1" */
-    char      volLabel  [12];                   /* volume label - don't care what this is */
-    uint32_t  volSerial;                        /* volume serial number - unique for each micro-sd card */
     uint8_t   partTotal;                        /* partitions on drive */
-    uint32_t  offset;                           /* sector offset for start of drive */
+    
     sd_card_t *pSD;
     uint32_t  packetCount;                      /* keep a tally of the command count for drive - just for stats */
-    uint32_t  diskSize;                         /* disk size in bytes */
+    uint32_t  diskSize;                         /* disk size - number of 512 byte sectors */
 
-} DRIVES;
+} 
+DRIVES;
 
 
 extern int      mountRAW        ( void );

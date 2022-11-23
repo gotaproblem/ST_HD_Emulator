@@ -12,32 +12,32 @@
 #ifndef _ACSI_CMD_H
 #define _ACSI_CMD_H
 
-/* ref. SPC-5 table F.2 Operation Codes */
-/* ATARI ACSI commands with some others - 6 bytes */
+
+/* ATARI ACSI commands (6 bytes) */
 enum ACSI_COMMANDS {
     
-    TEST_UNIT_READY = 0x00,
-    REQUEST_SENSE   = 0x03,
-    FORMAT_UNIT     = 0x04,
-    CMD_READ        = 0x08,
-    CMD_WRITE       = 0x0a,
-    CMD_SEEK        = 0x0b,
-
-    VENDOR_SPECIFIC = 0x0d,                     /* see this occasionally from the PPutnik driver - don't know what it does */
-
-    CMD_INQUIRY     = 0x12,
-    MODE_SELECT     = 0x15,
-    MODE_SENSE      = 0x1a,
-
-    SEND_DIAGNOSTIC = 0x1d,                     /* listed as mandatory, but is it ever used? */
-
-    MEDIA_REMOVE    = 0x1e,
-    EXTENDED_CMD    = 0x1f
+    TEST_UNIT_READY         = 0x00,
+    REQUEST_SENSE           = 0x03,
+    FORMAT_UNIT             = 0x04,
+    CMD_READ                = 0x08,
+    CMD_WRITE               = 0x0a,
+    CMD_SEEK                = 0x0b,
+    CMD_INQUIRY             = 0x12,
+    EXTENDED_CMD            = 0x1f
             
 };
 
+/* ref. SPC-5 table F.2 Operation Codes */
 /* SCSI commands - typically 10 bytes */
 enum SCSI_OP_CODES {
+
+    READ_BLOCK_LIMITS       = 0x05,
+    VENDOR_SPECIFIC         = 0x0d,             /* see this occasionally from the PPutnik driver - don't know what it does */
+    MODE_SELECT             = 0x15,
+    MODE_SENSE              = 0x1a,
+    START_STOP              = 0x1b,
+    SEND_DIAGNOSTIC         = 0x1d,             /* listed as mandatory, but is it ever used? */
+    MEDIA_REMOVE            = 0x1e,
 
     SCSI_OP_READ_CAPACITY   = 0x25,             /* 10 bytes */
     SCSI_OP_READ            = 0x28,
@@ -69,26 +69,37 @@ enum SCSI_ADDITIONAL_OP_CODES {
 #define OPCODE_MASK         0x1f
 
 
-typedef union {
-
-    struct {
-        
-        union {
-            
-            struct {
-                
+typedef union 
+{
+    struct 
+    {
+        union 
+        {
+            struct 
+            {
                 uint8_t opcode : 5;             /* command byte - opcode 0-0x1f */
                 uint8_t target : 3;             /* command byte - controller ID */
                 
             };
             uint8_t cmd;                        /* opcode and controller ID */
             
-        } DEVICE;                        
+        } DEVICE;  
+
+        union 
+        {
+            struct 
+            {
+                uint8_t msbLBA : 5;             /* upper LBA - bits 0-4 only */
+                uint8_t lun    : 3;             /* lun 0 - 7 */
+                
+            };
+            uint8_t msb;                        /* LUN and LBA upper bits */
+            
+        } BYTE1;                      
         
-        uint8_t msb;                            /* LBA - most-significant */
         uint8_t mid;
         uint8_t lsb;                            /* LBA - least significant */
-        uint8_t len;                            /* operation length (usually sector count in 512 byte increments) */
+        uint8_t len;                            /* operation length (usually sector count) */
         uint8_t mod;                            /* operation modifiers in bits 6 and 7*/
         uint8_t extra [11];                     /* extra command bytes for extended commands */
         uint8_t cmdLength;                      /* length of the command packet */

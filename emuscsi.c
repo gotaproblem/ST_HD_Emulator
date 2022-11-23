@@ -8,14 +8,18 @@
  * SCSI commands
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include "emu.h"
+#include <pico/stdlib.h>
 #include "emuscsi.h"
+#include "emu.h"
+
 
 
 void modeSense0 ( char *buf, DRIVES *pdrv, int lun )
 {
-    uint32_t blocks = pdrv->luns [0].sectorCount;
+    uint32_t blocks = pdrv->pSD->sectors - 1; //pdrv->luns [0].sectorCount;
 
 
     memset ( buf, 0, 16 );
@@ -36,7 +40,7 @@ void modeSense0 ( char *buf, DRIVES *pdrv, int lun )
 
 void modeSense4 ( char *buf, DRIVES *pdrv, int lun )
 {
-    uint32_t blocks = pdrv->luns [0].sectorCount;
+    uint32_t blocks = pdrv->pSD->sectors - 1; //pdrv->luns [0].sectorCount;
 
 
     memset ( buf, 0, 16 );
