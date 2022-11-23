@@ -27,5 +27,9 @@ The interface works happily at the default PICO CPU clock of 125 MHz.
 Typical transfer speeds are > 900 KB/s and peak just under 1100 KB/s. Dependent upon sd-card used.
 
 
+![IMG_20221123_075648](https://user-images.githubusercontent.com/37358158/203498219-669f4c92-ed25-4539-94dd-ad823408b29a.jpg)
+![IMG_20221123_075550](https://user-images.githubusercontent.com/37358158/203498492-91059b17-d28f-46f9-8b31-77cca58a99c8.jpg)
+![IMG_20221123_075717](https://user-images.githubusercontent.com/37358158/203498433-800c3950-8eab-4f6e-836a-1a9342bfb8cb.jpg)
+
 
 
