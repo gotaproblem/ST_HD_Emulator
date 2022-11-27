@@ -26,7 +26,7 @@ int EMUinit ( void )
     /* 125 MHz seems to offer me the best compromise - SPI clock > 31 MHz is too high 
      * for some cards I have 
      */
-    set_sys_clock_khz ( 150 * 1000, false );
+    set_sys_clock_khz ( 133 * 1000, false );
     
     clock_configure ( clk_peri, 
                       0, 

@@ -168,6 +168,14 @@ Pin	Name	Description
 #include "emuscsi.h"
 
 
+/* build options */
+#define DEBUG               1                   /* enable debug stuff */
+#define ICD_RTC             0                   /* include ICD RTC */
+#define USEDMA              1                   /* use DMA transfers for SPI - sdcard/spi.h also needs this define */
+#define PROJECT_HARDWARE    0                   /* set when using project hardware */
+#define PICO_W              0                   /* set when running on a Raspberry PI PICO-W */
+
+
 /* GPIO assignments by GPIO number */
 #define D0                  0                   /* GPIO 00-07 bi-directional */
 #define CS                  8                   /* GPIO 08 input  */
@@ -185,10 +193,14 @@ Pin	Name	Description
 #define MICROSD_CARD_CS1    20                  /* GPIO 20 output - microSD card socket 2 CS, active-low */
 #define MICROSD_CARD_CD0    21                  /* GPIO 21 input  - microSD card socket 1 CD, active-low */
 #define MICROSD_CARD_CD1    22                  /* GPIO 22 input  - microSD card socket 2 CD, active-low */
+#if PICO_W
+#define ONBOARD_LED         WL_GPIO0            /* WLGPIO 0 output - onboard LED */
+#else
 #define ONBOARD_LED         25                  /* GPIO 25 output - PI PICO onboard LED */
+#endif
 #define CONTROLLER_SELECT   26                  /* GPIO 26 input  - hardware controller ID match - high = selected */
 #define RTC_ENABLED         27                  /* GPIO 27 input  - hardware jumper 5-6 ON = high = RTC enabled */
-#define GPIO28              28                  /* GPIO 28 input  - not used */
+#define CONTROL_BUS_CNTRL   28                  /* GPIO 28 output - control bus enable */
 
 /* ACSI BUS signals */
 #define DATA_MASK           (1 << D0)           /* 0x00000000 */
@@ -209,9 +221,10 @@ Pin	Name	Description
 #define ACSI_DATA_MASK      0x000000ff          /* bits 0 - 7  ACSI bus data bits */
 #define ACSI_CNTRL_MASK     0x00007f00          /* bits 8 - 14 ACSI bus control bits */
 #define GPIO_MASK           0x1e7fffff          /* all gpio pins used for this project */
+#define CONTROL_BUS_CNTRL_MASK (1 << CONTROL_BUS_CNTRL)  /* GPIO 28 output - control bus enable */
 
 /* set 1 for each GPIO as an output */  
-#define GPIO_OUTPUTS_MASK   ((uint32_t)(DRQ_MASK | SPI_CS_MASK | IRQ_MASK | LED_MASK | DATA_BUS_CNTRL_MASK ))
+#define GPIO_OUTPUTS_MASK   ((uint32_t)(DRQ_MASK | SPI_CS_MASK | IRQ_MASK | LED_MASK | DATA_BUS_CNTRL_MASK | CONTROL_BUS_CNTRL_MASK ))
 
 
 
@@ -242,8 +255,9 @@ Pin	Name	Description
                                                 /* 1.41 added extra GPIO for RTC enable - ICD driver only (ID6)            */
                                                 /* 1.5  sd-card optimisations - added local sdcard and spi interface files */
                                                 /* 1.51 code optimisations all over and code tidy-up                       */
+                                                /* 1.52 added GPIO 28 to enable control bus                                */
 
-#define VERSION             "1.51"              /* major.minor max length 4 */
+#define VERSION             "1.52"              /* major.minor max length 4 */
 #define TITLE               "\n\033[2J" \
                             "********************************\n" \
                             "ATARI ACSI HDC Emulator\n" \
@@ -286,12 +300,6 @@ Pin	Name	Description
 #define FWRITE              false
 
 #define MHZ                 1000000
-
-/* build options */
-#define DEBUG               1                   /* enable debug stuff */
-#define ICD_RTC             0                   /* include ICD RTC */
-#define USEDMA              1                   /* use DMA transfers for SPI - sdcard/spi.h also needs this define */
-#define PROJECT_HARDWARE    0                   /* set when using project hardware */
 
 #if USEDMA
  extern volatile uint32_t intState;

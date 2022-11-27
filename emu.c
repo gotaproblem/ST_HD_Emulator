@@ -118,6 +118,9 @@ void __not_in_flash_func (core1Entry) (void)
         drv [i].prevState   = true;
     }
 
+    gpio_put ( CONTROL_BUS_CNTRL, HI );         /* enable control bus so we can listen for commands */
+
+    /* monitor ACSI bus */
     while ( 1 ) 
     {
         /* 
